@@ -49,6 +49,7 @@ class Ferro2DSim:
         self.rTip = rTip  # Radius of the tip
         self.time_steps = 1000  # hard wired for now
         self.pval = 1.0  # hard wired for now. Polarization at 0th time step
+        self.dep_alpha = 0.2#depolarization alpha
 
         # Pass the polarization value along with (x,y) tuple for location of atom
         self.P = np.zeros(shape=(self.time_steps))
@@ -148,7 +149,8 @@ class Ferro2DSim:
         return np.sum(p_nhood)
 
     def calDeriv(self, p_n, sum_p, Evec):
-        return -self.gamma * (self.beta * p_n ** 3 + self.alpha * p_n + self.k * (2 * p_n - sum_p) - Evec)
+        Eloc = Evec - self.dep_alpha*sum_p
+        return -self.gamma * (self.beta * p_n ** 3 + self.alpha * p_n + self.k * (2 * p_n - sum_p) - Eloc)
 
     def calcODE(self):
 
