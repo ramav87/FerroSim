@@ -148,8 +148,8 @@ class Ferro2DSim:
 
         return np.sum(p_nhood)
 
-    def calDeriv(self, p_n, sum_p, Evec):
-        Eloc = Evec - self.dep_alpha*sum_p
+    def calDeriv(self, p_n, sum_p, Evec, total_p):
+        Eloc = Evec - self.dep_alpha*total_p
         return -self.gamma * (self.beta * p_n ** 3 + self.alpha * p_n + self.k * (2 * p_n - sum_p) - Eloc)
 
     def calcODE(self):
@@ -172,8 +172,9 @@ class Ferro2DSim:
         for i in range(N):
             p_i = pnew[i, 0]
             sum_p = self.getPNeighbors(i, 0)
+            total_p = np.sum(pnew[:,0])
 
-            dpdt[i, 1] = self.calDeriv(p_i, sum_p, self.E[1, i])
+            dpdt[i, 1] = self.calDeriv(p_i, sum_p, self.E[1, i], total_p)
             pnew[i, 1] = p_i + dpdt[i, 1] * dt
             self.atoms[i].setP(1, p_i + dpdt[i, 1] * dt)
 
@@ -182,8 +183,9 @@ class Ferro2DSim:
             for i in np.arange(0, N):
                 p_i = pnew[i, t - 1]
                 sum_p = self.getPNeighbors(i, t - 1)
+                total_p = np.sum(pnew[:,t-1]) #total polarization
 
-                dpdt[i, t] = self.calDeriv(p_i, sum_p, self.E[t, i])
+                dpdt[i, t] = self.calDeriv(p_i, sum_p, self.E[t, i], total_p)
                 pnew[i, t] = p_i + dpdt[i, t] * dt
                 self.atoms[i].setP(t, p_i + dpdt[i, t] * dt)
 
