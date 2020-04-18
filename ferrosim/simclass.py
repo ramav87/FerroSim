@@ -230,7 +230,8 @@ class Ferro2DSim:
                 sum_p = self.getPNeighbors(i, t - 1)
                 total_px = np.sum(pnew[:, 0, t-1])
                 total_py = np.sum(pnew[:, 1, t-1])
-                total_p = np.sqrt(total_px ** 2 + total_py ** 2)
+                total_p = (total_px,total_py)
+                #total_p = np.sqrt(total_px ** 2 + total_py ** 2)
                 #total_p = np.sum(pnew[:,t-1]) #total polarization
 
                 dpdt[i,:, t] = self.calDeriv(p_i, sum_p, self.E[:,t, i], total_p)
