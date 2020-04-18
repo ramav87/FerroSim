@@ -153,7 +153,7 @@ class Ferro2DSim:
             p_val = self.atoms[index].getP(t)
             p_nhood.append(p_val)
 
-        return np.sum(p_nhood)
+        return np.sum(p_nhood,axis=0) #TODO: modify so that this returns (x,y) tuple sum
 
     def calDeriv(self, p_n, sum_p, Evec, total_p):
 
@@ -167,6 +167,9 @@ class Ferro2DSim:
 
         p_nx = p_n[0] # x component
         p_ny = p_n[1] # y component
+
+        sum_px= sum_p[0]
+        sum_py= sum_p[1]
 
         Evec_x = Evec[0]
         Evec_y = Evec[1]
