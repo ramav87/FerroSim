@@ -177,8 +177,8 @@ class Ferro2DSim:
         Eloc_x = Evec_x - self.dep_alpha*total_p
         Eloc_y = Evec_y - self.dep_alpha * total_p
 
-        xcomp_derivative = -self.gamma * (self.beta * p_nx ** 3 + self.alpha * p_nx + self.k * (p_nx - sum_p/4) - Eloc_x)
-        ycomp_derivative = -self.gamma * (self.beta * p_ny ** 3 + self.alpha * p_ny + self.k * (p_ny - sum_p/4) - Eloc_y)
+        xcomp_derivative = -self.gamma * (self.beta * p_nx ** 3 + self.alpha * p_nx + self.k * (p_nx - sum_px/4) - Eloc_x)
+        ycomp_derivative = -self.gamma * (self.beta * p_ny ** 3 + self.alpha * p_ny + self.k * (p_ny - sum_py/4) - Eloc_y)
 
         return [xcomp_derivative, ycomp_derivative]
 
