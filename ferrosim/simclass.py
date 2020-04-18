@@ -162,8 +162,8 @@ class Ferro2DSim:
         #The total P for depolarization effect can't just be accounted for like this
         #Need to actually calculate the surface normals. Anyhow, ignoring for now.
 
-        #total_px = total_p[0]
-        #total_py = total_p[1]
+        total_px = total_p[0]
+        total_py = total_p[1]
 
         p_nx = p_n[0] # x component
         p_ny = p_n[1] # y component
@@ -174,8 +174,8 @@ class Ferro2DSim:
         Evec_x = Evec[0]
         Evec_y = Evec[1]
 
-        Eloc_x = Evec_x - self.dep_alpha*total_p
-        Eloc_y = Evec_y - self.dep_alpha * total_p
+        Eloc_x = Evec_x - self.dep_alpha*total_px
+        Eloc_y = Evec_y - self.dep_alpha * total_py
 
         xcomp_derivative = -self.gamma * (self.beta * p_nx ** 3 + self.alpha * p_nx + self.k * (p_nx - sum_px/4) - Eloc_x)
         ycomp_derivative = -self.gamma * (self.beta * p_ny ** 3 + self.alpha * p_ny + self.k * (p_ny - sum_py/4) - Eloc_y)
@@ -215,7 +215,8 @@ class Ferro2DSim:
 
             total_px = np.sum(pnew[:,0,0])
             total_py = np.sum(pnew[:,1,0])
-            total_p = np.sqrt(total_px**2 + total_py**2)
+            total_p = (total_px,total_py)
+            #total_p = np.sqrt(total_px**2 + total_py**2)
 
             dpdt[i, :, 1] = self.calDeriv(p_i, sum_p, self.E[:,1,i], total_p)
             pnew[i, :, 1] = p_i + dpdt[i,:, 1] * dt
