@@ -322,7 +322,20 @@ class Ferro2DSim:
         fig.tight_layout()
         '''
         return
-
+    
+    def getPmat(self):
+        "Returns the polarization matrix of shape (2,t,N,N) after simulation has been executed."
+        Pmat = np.zeros(shape=(2,self.time_steps, self.n, self.n))
+        
+        
+        for ind in range(self.time_steps):
+            Pvals = np.zeros(shape=(2, self.n * self.n))
+            for i in range(self.n * self.n):
+                Pvals[:,i] = self.atoms[i].getP(ind)
+            Pmat[:, ind, :, :] = Pvals[:,:].reshape(2,self.n, self.n)
+            
+    self.Pmat = Pmat
+    return Pmat
 
     def make_interactive_plot(self):
         #Here we need to make an interactive plot that we can scrub through. It should also allow you to export to videos.
