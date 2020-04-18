@@ -33,8 +33,9 @@ class Ferro2DSim:
               rfield_strength: (float) Strength of the random field, as a fraction of Ec. E_bi Will be randomly distributed around this value.
     """
 
-    def __init__(self, n=10, alpha=-1.85, beta=1.25, gamma=2.0,
-                 E_frac=-80, k=1, r=1.1, t_max=1.0, defect_number=5, rfield_strength=2.0, rTip = 3.0):
+    def __init__(self, n=10, alpha=-1.6, beta=1.0, gamma=1.0,
+                 E_frac=-80, k=1, r=1.1, t_max=1.0, defect_number=0,
+                 rfield_strength=2.0, rTip = 3.0, dep_alpha = 0.2):
 
         self.alpha = alpha
         self.beta = beta
@@ -42,20 +43,20 @@ class Ferro2DSim:
         self.E_frac = E_frac
         self.k = k
         self.n = n
-        self.r = r
+        self.r = r #how many nearest neighbors to search for (radius)
         self.t_max = t_max
         self.defect_number = defect_number
         self.rfield_strength = rfield_strength
         self.rTip = rTip  # Radius of the tip
         self.time_steps = 1000  # hard wired for now
         self.pval = 1.0  # hard wired for now. Polarization at 0th time step
-        self.dep_alpha = 0.2#depolarization alpha
+        self.dep_alpha = dep_alpha#depolarization alpha
 
         # Pass the polarization value along with (x,y) tuple for location of atom
         self.P = np.zeros(shape=(self.time_steps))
         self.P[0] = self.pval
         self.position = (0, 0)
-        self.pr = -1 * np.sqrt(-self.alpha / self.beta) / (self.n * self.n)  # Remnant polarization
+        self.pr = -1 * np.sqrt(-self.alpha / self.beta) #/ (self.n * self.n)  # Remnant polarization
         self.E, self.appliedE, self.time_vec = self.setup_field()  # setup the electic field
 
         self.atoms = self.setup_lattice()  # setup the lattice
@@ -149,12 +150,31 @@ class Ferro2DSim:
         return np.sum(p_nhood)
 
     def calDeriv(self, p_n, sum_p, Evec, total_p):
-        Eloc = Evec - self.dep_alpha*total_p
+        Eloc = Evec - self.dep_alpha * total_p
         return -self.gamma * (self.beta * p_n ** 3 + self.alpha * p_n + self.k * (2 * p_n - sum_p) - Eloc)
+        #p_nx = p_n[0] # x component
+        #p_ny = p_n[1] # y component
+
+        #Evec_x = Evec[0]
+        #Evec_y = Evec[1]]
+
+        #Eloc = Evec - self.dep_alpha*total_p
+
+        #xcomp_derivative = -self.gamma * (self.beta * p_nx ** 3 + self.alpha * p_nx + self.k * (p_nx - sum_p/4) - Eloc_x)
+        #ycomp_derivative = -self.gamma * (self.beta * p_ny ** 3 + self.alpha * p_ny + self.k * (p_ny - sum_p/4) - Eloc_y)
+
+        #return -self.gamma * (self.beta * p_n ** 3 + self.alpha * p_n + self.k * (4*p_n - sum_p) - Eloc)
 
     def calcODE(self):
 
         # Calcualte the ODE (Landau-khalatnikov 4th order expansion), return dp/dt and P
+        #New ODE equation should be
+        #gamam*dp/dt = -dF/dp
+        #so, dp/dt = (1/gamma) * dF/dp
+        #F = sum(1 to N) [a/2 (p_nx^2 + p_ny^2) + beta/4 (p_nx^4 + p_ny^4) + k/2 (p_n - p_(n-1))^2 - p_nE]
+        #the derivative is more important
+
+
         N = self.n * self.n
 
         dpdt = np.zeros(shape=(N, len(self.time_vec)))
@@ -165,8 +185,11 @@ class Ferro2DSim:
         pr = -self.gamma * np.sqrt(-self.alpha / self.beta)  # Remnant polarization
 
         # For t = 0
+        #Assume strt at remnant pr
         p[:, 0] = pr
         pnew[:, 0] = pr
+
+        #For updates, just calculate derivative and go from there.
 
         # t=1
         for i in range(N):
