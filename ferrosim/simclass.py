@@ -334,8 +334,8 @@ class Ferro2DSim:
                 Pvals[:,i] = self.atoms[i].getP(ind)
             Pmat[:, ind, :, :] = Pvals[:,:].reshape(2,self.n, self.n)
             
-    self.Pmat = Pmat
-    return Pmat
+        self.Pmat = Pmat
+        return Pmat
 
     def make_interactive_plot(self):
         #Here we need to make an interactive plot that we can scrub through. It should also allow you to export to videos.
