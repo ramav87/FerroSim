@@ -1,0 +1,10 @@
+Metadata-Version: 2.1
+Name: FerroSim
+Version: 0.0.1
+Summary: FerroSim 2D simulation
+Home-page: http://github.com/ramav87/ferrosim
+Author: Rama Vasudevan
+License: MIT
+Description: # FerroSim
+Platform: UNKNOWN
+Description-Content-Type: text/markdown

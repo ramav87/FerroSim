@@ -1,0 +1,10 @@
+README.md
+setup.py
+FerroSim.egg-info/PKG-INFO
+FerroSim.egg-info/SOURCES.txt
+FerroSim.egg-info/dependency_links.txt
+FerroSim.egg-info/not-zip-safe
+FerroSim.egg-info/top_level.txt
+ferrosim/__init__.py
+ferrosim/lattice.py
+ferrosim/simclass.py

@@ -14,8 +14,8 @@ class Lattice:
 
     def __init__(self, pval, xyval, time_steps):
         # Pass the polarization value along with (x,y) tuple for location of atom
-        self.P = np.zeros(shape=(2, time_steps)) #(x,y components of P)
-        self.P[:,0] = pval
+        self.P = np.zeros(shape=(time_steps))
+        self.P[0] = pval
         self.position = xyval
         self.neighbor = []
         self.neighborIndex = []
@@ -26,7 +26,7 @@ class Lattice:
 
     def getP(self, time):
         # Returns the polarization at t=time
-        return self.P[:,time]
+        return self.P[time]
 
     def getNeighbors(self):
         # Returns a list containing the nearest neighbors, set by using updateNeighbors
@@ -45,10 +45,8 @@ class Lattice:
         self.position = xyval
 
     def setP(self, time, pval):
-        # Sets the (x,y) position of the object. Pass a two-element tuple (time, pval)
-        # where pval = (px,py)
-
-        self.P[:,time] = pval
+        # Sets the (x,y) position of the object. Pass a two-element tuple.
+        self.P[time] = pval
 
     def updateNeighbors(self, nTuples):
         """Provide a list of tuples of nearest neighbors (nTuples)

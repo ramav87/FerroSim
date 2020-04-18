@@ -65,7 +65,7 @@ class Ferro2DSim:
         time_vec = np.linspace(0, self.t_max, self.time_steps)
 
         # Field and degraded regions
-        E = np.zeros(shape=(2, len(time_vec), self.n * self.n))
+        E = np.zeros(shape=(len(time_vec), self.n * self.n))
         Ebi = np.zeros(shape=(self.n * self.n))
         Ec = (-2 / 3) * self.alpha * np.sqrt((-self.alpha / (3 * self.beta)))
         E0 = self.E_frac * Ec
@@ -73,7 +73,7 @@ class Ferro2DSim:
         Ebi[rand_selection] = np.random.rand(len(rand_selection)) * Ec * self.rfield_strength
 
         for i in range(self.n * self.n):
-            E[1, 1:, i] = E0 * np.sin(time_vec[1:] * 2 * np.pi * 2) + Ebi[i] #field only in y direction
+            E[1:, i] = E0 * np.sin(time_vec[1:] * 2 * np.pi * 2) + Ebi[i]
 
         appliedE = E0 * np.sin(time_vec[1:] * 2 * np.pi * 2)
 
@@ -106,36 +106,30 @@ class Ferro2DSim:
 
         return atoms
 
-    def runSim(self, calc_pr = False):
+    def runSim(self):
         dpdt, pnew = self.calcODE()
 
         P_total = np.sum(pnew, 0)
         dP_total = np.sum(dpdt, 0)
 
         # Now simulate the real measurement with probing volume
-
         measured_resp = np.zeros(shape=(self.n, self.n, len(self.time_vec)))  # placeholder
-        if calc_pr:
 
-            for i in np.arange(self.rTip + 1, self.n - self.rTip - 1):
-                for j in np.arange(self.rTip + 1, self.n - self.rTip - 1):
+        for i in np.arange(self.rTip + 1, self.n - self.rTip - 1):
+            for j in np.arange(self.rTip + 1, self.n - self.rTip - 1):
 
-                    probe_vol = self.makeCircle(self.n, self.n, i, j, self.rTip)
+                probe_vol = self.makeCircle(self.n, self.n, i, j, self.rTip)
 
-                    for t in np.arange(0, len(self.time_vec)):
-                        pimage = pnew[:, t].reshape((self.n, self.n))
-                        measured_resp[i, j, t] = np.sum(probe_vol * pimage)
-            measured_resp = measured_resp[(self.rTip+1):-(self.rTip+1),(self.rTip+1):-(self.rTip+1),:]
-            line_Pvals = np.copy(measured_resp).reshape(-1, len(self.time_vec))
-            #max_val = np.max(line_Pvals)
+                for t in np.arange(0, len(self.time_vec)):
+                    pimage = pnew[:, t].reshape((self.n, self.n))
+                    measured_resp[i, j, t] = np.sum(probe_vol * pimage)
+        measured_resp = measured_resp[(self.rTip+1):-(self.rTip+1),(self.rTip+1):-(self.rTip+1),:]
+        line_Pvals = np.copy(measured_resp).reshape(-1, len(self.time_vec))
+        #max_val = np.max(line_Pvals)
 
-
-            results = {'Polarization': P_total, 'dPolarization': dP_total, 'measuredResponse': measured_resp,
-                       'line_polarization_values': line_Pvals
-                       }
-        else:
-            results = {'Polarization': P_total, 'dPolarization': dP_total
-                       }
+        results = {'Polarization': P_total, 'dPolarization': dP_total, 'measuredResponse': measured_resp,
+                   'line_polarization_values': line_Pvals
+                   }
 
         self.results = results
 
@@ -156,79 +150,67 @@ class Ferro2DSim:
         return np.sum(p_nhood)
 
     def calDeriv(self, p_n, sum_p, Evec, total_p):
+        Eloc = Evec - self.dep_alpha * total_p
+        return -self.gamma * (self.beta * p_n ** 3 + self.alpha * p_n + self.k * (2 * p_n - sum_p) - Eloc)
+        #p_nx = p_n[0] # x component
+        #p_ny = p_n[1] # y component
 
-        #total_p should be a tuple with (px, py).
-        #TODO: This is wrong. We need to come up with a better way to handle this.
-        #The total P for depolarization effect can't just be accounted for like this
-        #Need to actually calculate the surface normals. Anyhow, ignoring for now.
+        #Evec_x = Evec[0]
+        #Evec_y = Evec[1]]
 
-        #total_px = total_p[0]
-        #total_py = total_p[1]
+        #Eloc = Evec - self.dep_alpha*total_p
 
-        p_nx = p_n[0] # x component
-        p_ny = p_n[1] # y component
+        #xcomp_derivative = -self.gamma * (self.beta * p_nx ** 3 + self.alpha * p_nx + self.k * (p_nx - sum_p/4) - Eloc_x)
+        #ycomp_derivative = -self.gamma * (self.beta * p_ny ** 3 + self.alpha * p_ny + self.k * (p_ny - sum_p/4) - Eloc_y)
 
-        Evec_x = Evec[0]
-        Evec_y = Evec[1]
-
-        Eloc_x = Evec_x - self.dep_alpha*total_p
-        Eloc_y = Evec_y - self.dep_alpha * total_p
-
-        xcomp_derivative = -self.gamma * (self.beta * p_nx ** 3 + self.alpha * p_nx + self.k * (p_nx - sum_p/4) - Eloc_x)
-        ycomp_derivative = -self.gamma * (self.beta * p_ny ** 3 + self.alpha * p_ny + self.k * (p_ny - sum_p/4) - Eloc_y)
-
-        return [xcomp_derivative, ycomp_derivative]
+        #return -self.gamma * (self.beta * p_n ** 3 + self.alpha * p_n + self.k * (4*p_n - sum_p) - Eloc)
 
     def calcODE(self):
 
-        # Calculatethe ODE (Landau-Khalatnikov 4th order expansion), return dp/dt and P
+        # Calcualte the ODE (Landau-khalatnikov 4th order expansion), return dp/dt and P
+        #New ODE equation should be
+        #gamam*dp/dt = -dF/dp
+        #so, dp/dt = (1/gamma) * dF/dp
+        #F = sum(1 to N) [a/2 (p_nx^2 + p_ny^2) + beta/4 (p_nx^4 + p_ny^4) + k/2 (p_n - p_(n-1))^2 - p_nE]
+        #the derivative is more important
+
 
         N = self.n * self.n
 
-        dpdt = np.zeros(shape=(N, 2, len(self.time_vec))) #N lattice sites, 2 dim (x,y) for P, 1 time dim
-        p = np.zeros(shape=(N, 2, len(self.time_vec)))
-        pnew = np.zeros(shape=(N, 2, len(self.time_vec)))
+        dpdt = np.zeros(shape=(N, len(self.time_vec)))
+        p = np.zeros(shape=(N, len(self.time_vec)))
+        pnew = np.zeros(shape=(N, len(self.time_vec)))
 
         dt = self.time_vec[1] - self.time_vec[0]
         pr = -self.gamma * np.sqrt(-self.alpha / self.beta)  # Remnant polarization
 
         # For t = 0
-        #Assume start at remnant pr
-        #p[:, 0] = pr Not sure we even use this?
-
-        pnew[:N//2,1, 0] = -pr #assuming P is -x until y=N/2, then +x till the end of slab
-        pnew[N//2:, 1, 0] = pr
+        #Assume strt at remnant pr
+        p[:, 0] = pr
+        pnew[:, 0] = pr
 
         #For updates, just calculate derivative and go from there.
 
         # t=1
         for i in range(N):
-
-            p_i = pnew[i, :, 0]
+            p_i = pnew[i, 0]
             sum_p = self.getPNeighbors(i, 0)
+            total_p = np.sum(pnew[:,0])
 
-            total_px = np.sum(pnew[:,0,0])
-            total_py = np.sum(pnew[:,1,0])
-            total_p = np.sqrt(total_px**2 + total_py**2)
-
-            dpdt[i, :, 1] = self.calDeriv(p_i, sum_p, self.E[:,1,i], total_p)
-            pnew[i, :, 1] = p_i + dpdt[i,:, 1] * dt
-
-            self.atoms[i].setP(1, p_i + dpdt[i, :,1] * dt)
+            dpdt[i, 1] = self.calDeriv(p_i, sum_p, self.E[1, i], total_p)
+            pnew[i, 1] = p_i + dpdt[i, 1] * dt
+            self.atoms[i].setP(1, p_i + dpdt[i, 1] * dt)
 
         for t in np.arange(2, len(self.time_vec)):
 
             for i in np.arange(0, N):
-                p_i = pnew[i,:, t - 1]
+                p_i = pnew[i, t - 1]
                 sum_p = self.getPNeighbors(i, t - 1)
-                total_px = np.sum(pnew[:, 0, t-1])
-                total_py = np.sum(pnew[:, 1, t-1])
-                total_p = np.sqrt(total_px ** 2 + total_py ** 2)
-                #total_p = np.sum(pnew[:,t-1]) #total polarization
+                total_p = np.sum(pnew[:,t-1]) #total polarization
 
-                dpdt[i,:, t] = self.calDeriv(p_i, sum_p, self.E[:,t, i], total_p)
-                pnew[i,:, t] = p_i + dpdt[i,:, t] * dt
-                self.atoms[i].setP(t, p_i + dpdt[i, :,t] * dt)
+                dpdt[i, t] = self.calDeriv(p_i, sum_p, self.E[t, i], total_p)
+                pnew[i, t] = p_i + dpdt[i, t] * dt
+                self.atoms[i].setP(t, p_i + dpdt[i, t] * dt)
 
         return dpdt, pnew
 
@@ -244,24 +226,24 @@ class Ferro2DSim:
             fig, axes = plt.subplots(nrows=5, ncols=5, figsize = (16,16))
             for ind, ax in enumerate(axes.flat):
                 time_step = time_steps_chosen[ind]
-                Pvals = np.zeros(shape=(2, self.n * self.n))
+                Pvals = np.zeros(shape=(self.n * self.n, 1))
 
                 for i in range(self.n * self.n):
-                    Pvals[:,i] = self.atoms[i].getP(time_step)
+                    Pvals[i, :] = self.atoms[i].getP(time_step)
 
-                Pvals = np.reshape(Pvals, (2, self.n, self.n))
-                ax.quiver(Pvals[0,:,:], Pvals[1,:,:])
+                Pvals = np.reshape(Pvals, (self.n, self.n))
+                ax.quiver(U, Pvals)
                 ax.set_title('Polarization map at t = ' + str(time_step))
                 ax.set_xlim(-2,self.n+1)
                 ax.set_ylim(-2,self.n+1)
                 ax.axis('tight')
         else:
             fig, axes = plt.subplots(figsize=(6, 6))
-            Pvals = np.zeros(shape=(2, self.n * self.n, 1))
+            Pvals = np.zeros(shape=(self.n * self.n, 1))
             for i in range(self.n * self.n):
-                Pvals[:,i] = self.atoms[i].getP(time_step)
-            Pvals = np.reshape(Pvals, (2, self.n, self.n))
-            axes.quiver(Pvals[0,:,:], Pvals[1,:,:])
+                Pvals[i, :] = self.atoms[i].getP(time_step)
+            Pvals = np.reshape(Pvals, (self.n, self.n))
+            axes.quiver(U, Pvals)
             axes.set_title('Polarization map at t = ' + str(time_step))
             axes.set_xlim(-2, self.n + 1)
             axes.set_ylim(-2, self.n + 1)
