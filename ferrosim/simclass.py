@@ -196,8 +196,11 @@ class Ferro2DSim:
         #Assume start at remnant pr
         #p[:, 0] = pr Not sure we even use this?
 
-        pnew[:N//2,1, 0] = -pr #assuming P is -x until y=N/2, then +x till the end of slab
-        pnew[N//2:, 1, 0] = pr
+        pnew[:N,1, 0] = pr #assuming P is -x until y=N
+        #pnew[N//2:, 1, 0] = pr
+
+        #pnew[:N // 2, 0, 0] = 0  # assuming P is -x until y=N/2, then +x till the end of slab
+        #pnew[N // 2:, 0, 0] = 0
 
         #For updates, just calculate derivative and go from there.
 
@@ -236,12 +239,11 @@ class Ferro2DSim:
         #Plots a time sequence of P maps as quiver plots
         #if time step is provided then it plots only that time step
 
-        U = np.full(shape=(self.n, self.n), fill_value=0) #x component is just zero
 
         if time_step is None:
-            time_steps_chosen = [int(x) for x in np.linspace(0, self.time_steps-1, 25)]
+            time_steps_chosen = [int(x) for x in np.linspace(0, self.time_steps-1, 9)]
 
-            fig, axes = plt.subplots(nrows=5, ncols=5, figsize = (16,16))
+            fig, axes = plt.subplots(nrows=3, ncols=3, figsize = (16,16))
             for ind, ax in enumerate(axes.flat):
                 time_step = time_steps_chosen[ind]
                 Pvals = np.zeros(shape=(2, self.n * self.n))
@@ -274,14 +276,18 @@ class Ferro2DSim:
     def plot_summary(self):
 
         fig101 = plt.figure(101)
-        plt.plot(self.time_vec[1:], self.results['Polarization'][1:])
+        plt.plot(self.time_vec[:], self.results['Polarization'][0,:], label = 'Px')
+        plt.plot(self.time_vec[:], self.results['Polarization'][1, :], label='Py')
         plt.xlabel('Time (a.u.)')
-        plt.ylabel('Total Polarization')
+        plt.ylabel('Polarization')
+        plt.legend(loc = 'best')
 
         fig102 = plt.figure(102)
-        plt.plot(self.appliedE[:], self.results['Polarization'][1:])
+        plt.plot(self.appliedE[:], self.results['Polarization'][0,1:] , label = 'Px')
+        plt.plot(self.appliedE[:], self.results['Polarization'][1, 1:], label = 'Py')
         plt.xlabel('Field (a.u.)')
         plt.ylabel('Total Polarization')
+        plt.legend(loc='best')
 
         fig103 = plt.figure(103)
         plt.plot(self.time_vec[1:], self.appliedE[:])
@@ -290,10 +296,13 @@ class Ferro2DSim:
 
         S = self.results['Polarization'] ** 2
         fig104 = plt.figure(104)
-        plt.plot(self.appliedE[:], S[1:])
+        plt.plot(self.appliedE[:], S[0,1:] ,label = 'Sx')
+        plt.plot(self.appliedE[:], S[1, 1:], label='Sy')
         plt.xlabel('Field (a.u.)')
         plt.ylabel('Amplitude')
+        plt.legend(loc='best')
 
+        '''
         fig105 = plt.figure(105)
         fig, axes = plt.subplots(nrows=5, ncols=5, figsize = (12,12))
         time_steps_chosen = [int(x) for x in np.linspace(1, self.time_steps-1, 25)]
@@ -306,7 +315,7 @@ class Ferro2DSim:
             ax.axis('off')
             ax.set_title('PR at t = {}'.format(time_steps_chosen[ind]))
         fig.tight_layout()
-
+        '''
         return
 
 
