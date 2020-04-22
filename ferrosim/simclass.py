@@ -57,7 +57,7 @@ class Ferro2DSim:
         else:
             #Do some checks
             if len(k)!=n*n:
-                raise ShapeError("Length of provided coupling list should be {}, instead received {}".format(n,len(k)))
+                raise AssertionError("Length of provided coupling list should be {}, instead received {}".format(n,len(k)))
             else:
                 self.k = k
 
@@ -66,16 +66,16 @@ class Ferro2DSim:
         else:
             # Do some checks
             if len(dep_alpha)!=n*n:
-                raise ShapeError("Length of provided coupling list should be {}, instead received {}".format(n,len(dep_alpha)))
+                raise AssertionError("Length of provided coupling list should be {}, instead received {}".format(n,len(dep_alpha)))
             else:
                 self.dep_alpha = dep_alpha
 
         self.Ec = (-2 / 3) * self.alpha * np.sqrt((-self.alpha / (3 * self.beta)))
         if time_vec is not None or appliedE is not None:
             if appliedE is None and time_vec is not None:
-                raise ValueError("You have supplied a time vector but not a field vector. This is not allowed. You must supply both")
+                raise AssertionError("You have supplied a time vector but not a field vector. This is not allowed. You must supply both")
             if appliedE is None and time_vec is not None:
-                raise ValueError("You have supplied a field vector but not a time vector. This is not allowed. You must supply both")
+                raise AssertionError("You have supplied a field vector but not a time vector. This is not allowed. You must supply both")
         elif time_vec is None and appliedE is None:
             #these will be the defaults for the field, i.e. in case nothing is passed
             self.t_max = 1.0
@@ -294,26 +294,28 @@ class Ferro2DSim:
         plt.legend(loc = 'best')
 
         fig102 = plt.figure(102)
-        plt.plot(self.appliedE[:], self.results['Polarization'][0,1:] , label = 'Px')
-        plt.plot(self.appliedE[:], self.results['Polarization'][1, 1:], label = 'Py')
+        plt.plot(self.appliedE[:,0], self.results['Polarization'][0,:] , label = 'Px')
+        plt.plot(self.appliedE[:,1], self.results['Polarization'][1, :], label = 'Py')
         plt.xlabel('Field (a.u.)')
         plt.ylabel('Total Polarization')
         plt.legend(loc='best')
 
         fig103 = plt.figure(103)
-        plt.plot(self.time_vec[1:], self.appliedE[:])
+        plt.plot(self.time_vec[:], self.appliedE[:,0], label = 'Ex')
+        plt.plot(self.time_vec[:], self.appliedE[:, 1], label='Ey')
         plt.xlabel('Time (a.u.)')
         plt.ylabel('Field (a.u.)')
+        plt.legend(loc = 'best')
 
         S = self.results['Polarization'] ** 2
         fig104 = plt.figure(104)
-        plt.plot(self.appliedE[:], S[0,1:] ,label = 'Sx')
-        plt.plot(self.appliedE[:], S[1, 1:], label='Sy')
+        plt.plot(self.appliedE[:,0], S[0,:] ,label = 'Sx')
+        plt.plot(self.appliedE[:,1], S[1, :], label='Sy')
         plt.xlabel('Field (a.u.)')
         plt.ylabel('Amplitude')
         plt.legend(loc='best')
 
-        return [fig101, fig102, fig103, fig104]
+        return
     
     def getPmat(self):
         "Returns the polarization matrix of shape (2,t,N,N) after simulation has been executed."
@@ -359,11 +361,11 @@ class Ferro2DSim:
 
 
         fig2.tight_layout()
-        simulation = animation.FuncAnimation(fig2, updateData, interval=50, frames=range(0, self.time_steps, 5), repeat=False)
+        sim_animation = animation.FuncAnimation(fig2, updateData, interval=50, frames=range(0, self.time_steps, 5), repeat=False)
 
-        plt.show()
+        #plt.show()
 
-        return
+        return sim_animation
 
     @staticmethod
     def makeCircle(xsize, ysize, xpt, ypt, radius):
