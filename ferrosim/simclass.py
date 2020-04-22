@@ -82,7 +82,7 @@ class Ferro2DSim:
             self.time_steps = 1000
             self.time_vec = np.linspace(0, self.t_max, self.time_steps)
             self.appliedE = np.zeros((self.time_steps, 2))
-            self.appliedE[:, 1] = 10*self.Ec * np.sin(self.time_vec[:] * 2 * np.pi * 2) #field is by default in y direction
+            self.appliedE[:, 1] = 40*self.Ec * np.sin(self.time_vec[:] * 2 * np.pi * 2) #field is by default in y direction
 
         if time_vec is not None and appliedE is not None:
             self.t_max = np.max(time_vec)
