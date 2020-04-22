@@ -34,37 +34,75 @@ class Ferro2DSim:
     """
 
     def __init__(self, n=10, alpha=-1.6, beta=1.0, gamma=1.0,
-                 E_frac=-80, k=1, r=1.1, t_max=1.0, defect_number=0,
-                 rfield_strength=2.0, rTip = 3.0, dep_alpha = 0.2):
+                 k=1, r=1.1,rTip = 3.0, dep_alpha = 0.2,
+                 time_vec = None, defects = None,
+                 appliedE = none, initial_p = None): #if you wish to pass a custom electric field, then also supply the time vector
 
         self.alpha = alpha
         self.beta = beta
         self.gamma = gamma  # kinetic coefficient
-        self.E_frac = E_frac
+        self.Ec = (-2 / 3) * self.alpha * np.sqrt((-self.alpha / (3 * self.beta)))
+        #self.E_frac = E_frac
         self.k = k
         self.n = n
         self.r = r #how many nearest neighbors to search for (radius)
+
+        if time_vec is not None or appliedE is not None:
+            if appliedE is None and time_vec is not None:
+                raise ValueError("You have supplied a time vector but not a field vector. This is not allowed. You must supply both")
+            if appliedE is None and time_vec is not None:
+                raise ValueError("You have supplied a field vector but not a time vector. This is not allowed. You must supply both")
+        elif time_vec is None and appliedE is None:
+            #these will be the defaults for the field, i.e. in case nothing is passed
+            self.t_max = 1.0
+            self.time_steps = 1000
+            self.time_vec = np.linspace(0, self.t_max, self.time_steps)
+
+            self.appliedE = 10*self.Ec * np.sin(self.time_vec[:] * 2 * np.pi * 2)
+        elif time_vec is not None and appliedE is not None:
+            self.t_max = np.max(time_vec)
+            self.time_steps = len(time_vec)
+            self.appliedE = appliedE
+            self.time_vec = time_vec
+
+        #We are going to define random fields based on the input of defects
+        #defects will be a list of tuples of size N with the Ex, Ey field components
+        #the field will be given in units of Ec, where Ec is defined for the pristine state (-2/3)alpha*(-alpha/3*beta)^1/2
+
+        if defects is None:
+            self.Eloc = [(0,0) for ind in range(self.n*self.n)]
+        else:
+            self.Eloc = [(Ex*self.Ec,Ey*self.Ec) for (Ex,Ey) in defects] #We will worry about random bond defects later.
+
+
         self.t_max = t_max
         self.defect_number = defect_number
         self.rfield_strength = rfield_strength
         self.rTip = rTip  # Radius of the tip
         self.time_steps = 1000  # hard wired for now
         self.pval = 1.0  # hard wired for now. Polarization at 0th time step
-        self.dep_alpha = dep_alpha#depolarization alpha
+        self.dep_alpha = dep_alpha #depolarization alpha
 
         # Pass the polarization value along with (x,y) tuple for location of atom
-        self.P = np.zeros(shape=(self.time_steps))
-        self.P[0] = self.pval
-        self.position = (0, 0)
-        self.pr = -1 * np.sqrt(-self.alpha / self.beta) #/ (self.n * self.n)  # Remnant polarization
-        self.E, self.appliedE, self.time_vec = self.setup_field()  # setup the electic field
+        #self.P = np.zeros(shape=(self.time_steps))
+        #self.P[0] = self.pval
+        #self.position = (0, 0)
+
+        pr = -1 * np.sqrt(-self.alpha / self.beta) #/ (self.n * self.n)  # Remnant polarization, y component
+
+        if self.initial_p is None: self.initial_p = [0,pr] #assuming zero x component
+        else: self.initial_p = initial_p
+
+        #self.E, self.appliedE, self.time_vec = self.setup_field()  # setup the electic field
 
         self.atoms = self.setup_lattice()  # setup the lattice
-
+    '''
     def setup_field(self):
         time_vec = np.linspace(0, self.t_max, self.time_steps)
 
         # Field and degraded regions
+        #E = Eappl + Edep + Eloc
+
         E = np.zeros(shape=(2, len(time_vec), self.n * self.n))
         Ebi = np.zeros(shape=(self.n * self.n))
         Ec = (-2 / 3) * self.alpha * np.sqrt((-self.alpha / (3 * self.beta)))
@@ -77,7 +115,7 @@ class Ferro2DSim:
 
         appliedE = E0 * np.sin(time_vec[1:] * 2 * np.pi * 2)
 
-        return E, appliedE, time_vec
+        return E, appliedE, time_vec'''
 
     def setup_lattice(self):
         atoms = []
@@ -86,7 +124,7 @@ class Ferro2DSim:
         for i in range(self.n):
             for j in range(self.n):
                 atoms.append(
-                    Lattice(self.pr, (i, j), len(self.time_vec)))  # Make lattice objects for each lattice site.
+                    Lattice(self.initial_p, (i, j), len(self.time_vec)))  # Make lattice objects for each lattice site.
 
         for ind in range(len(atoms)):
             pos_vec[:, ind] = np.array(atoms[ind].getPosition())  # put the positions into pos_vec
@@ -127,8 +165,6 @@ class Ferro2DSim:
                         measured_resp[i, j, t] = np.sum(probe_vol * pimage)
             measured_resp = measured_resp[(self.rTip+1):-(self.rTip+1),(self.rTip+1):-(self.rTip+1),:]
             line_Pvals = np.copy(measured_resp).reshape(-1, len(self.time_vec))
-            #max_val = np.max(line_Pvals)
-
 
             results = {'Polarization': P_total, 'dPolarization': dP_total, 'measuredResponse': measured_resp,
                        'line_polarization_values': line_Pvals
@@ -153,17 +189,11 @@ class Ferro2DSim:
             p_val = self.atoms[index].getP(t)
             p_nhood.append(p_val)
 
-        return np.sum(p_nhood,axis=0) #TODO: modify so that this returns (x,y) tuple sum
+        return np.sum(p_nhood,axis=0)
 
     def calDeriv(self, p_n, sum_p, Evec, total_p):
 
         #total_p should be a tuple with (px, py).
-        #TODO: This is wrong. We need to come up with a better way to handle this.
-        #The total P for depolarization effect can't just be accounted for like this
-        #Need to actually calculate the surface normals. Anyhow, ignoring for now.
-
-        total_px = total_p[0]
-        total_py = total_p[1]
 
         p_nx = p_n[0] # x component
         p_ny = p_n[1] # y component
@@ -174,8 +204,8 @@ class Ferro2DSim:
         Evec_x = Evec[0]
         Evec_y = Evec[1]
 
-        Eloc_x = Evec_x - self.dep_alpha*total_px
-        Eloc_y = Evec_y - self.dep_alpha * total_py
+        Eloc_x = Evec_x - self.dep_alpha*total_p[0] + self.Eloc[i][0]
+        Eloc_y = Evec_y - self.dep_alpha * total_p[1] + self.Eloc[i][1]
 
         xcomp_derivative = -self.gamma * (self.beta * p_nx ** 3 + self.alpha * p_nx + self.k * (p_nx - sum_px/4) - Eloc_x)
         ycomp_derivative = -self.gamma * (self.beta * p_ny ** 3 + self.alpha * p_ny + self.k * (p_ny - sum_py/4) - Eloc_y)
@@ -189,23 +219,15 @@ class Ferro2DSim:
         N = self.n * self.n
 
         dpdt = np.zeros(shape=(N, 2, len(self.time_vec))) #N lattice sites, 2 dim (x,y) for P, 1 time dim
-        p = np.zeros(shape=(N, 2, len(self.time_vec)))
+        #p = np.zeros(shape=(N, 2, len(self.time_vec)))
         pnew = np.zeros(shape=(N, 2, len(self.time_vec)))
-
         dt = self.time_vec[1] - self.time_vec[0]
-        pr = -self.gamma * np.sqrt(-self.alpha / self.beta)  # Remnant polarization
 
         # For t = 0
         #Assume start at remnant pr
         #p[:, 0] = pr Not sure we even use this?
 
-        pnew[:N,1, 0] = pr #assuming P is -x until y=N
-        #pnew[N//2:, 1, 0] = pr
-
-        #pnew[:N // 2, 0, 0] = 0  # assuming P is -x until y=N/2, then +x till the end of slab
-        #pnew[N // 2:, 0, 0] = 0
-
-        #For updates, just calculate derivative and go from there.
+        pnew[:,:, 0] = self.initial_p
 
         # t=1
         for i in range(N):
@@ -215,8 +237,7 @@ class Ferro2DSim:
 
             total_px = np.sum(pnew[:,0,0])
             total_py = np.sum(pnew[:,1,0])
-            total_p = (total_px,total_py)
-            #total_p = np.sqrt(total_px**2 + total_py**2)
+            total_p = (total_px, total_py)
 
             dpdt[i, :, 1] = self.calDeriv(p_i, sum_p, self.E[:,1,i], total_p)
             pnew[i, :, 1] = p_i + dpdt[i,:, 1] * dt
@@ -326,8 +347,7 @@ class Ferro2DSim:
     def getPmat(self):
         "Returns the polarization matrix of shape (2,t,N,N) after simulation has been executed."
         Pmat = np.zeros(shape=(2,self.time_steps, self.n, self.n))
-        
-        
+
         for ind in range(self.time_steps):
             Pvals = np.zeros(shape=(2, self.n * self.n))
             for i in range(self.n * self.n):
