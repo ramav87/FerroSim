@@ -26,20 +26,20 @@ class Ferro2DSim:
               then also pass the time vector,  i.e. np.linspace(0,max_time, time_steps)
               
               appliedE: (optional) (numpy array of size (time_steps, 2) indicating applied electric field 
-              in units of Ec (Ec is nominal coercive field) for both x and y components
+              in units of Ec (Ec is nominal coercive field) for both x and y components. Default is a sine wave
                                     
               defects: (optional) list of tuples of length (n*n) with each tuple (RFx, RFy) being floats. 
               If none provided, then (RFx,RFy) is (0,0) at all sites.
               This stipulates the strength of the random field defects at each site and will be multipled by Ec, the nominal coercive field
               r: (float) Radius for nearest neighbor correlations. Default = 1.1 (nearest neighbor only)
               rTip: (int) Tip radius. This is not really used properly so ignore for timebeing. Default = 3
-              
+              dep_alpha (float): Depolarization constant (will be multipled by total polarization and subtracted from energy at lattice site). Default = 0
               
               
     """
 
     def __init__(self, n=10, alpha=-1.6, beta=1.0, gamma=1.0,
-                 k=1, r=1.1,rTip = 3.0, dep_alpha = 0.2,
+                 k=1, r=1.1,rTip = 3.0, dep_alpha = 0.0,
                  time_vec = None, defects = None,
                  appliedE = None, initial_p = None):
 
