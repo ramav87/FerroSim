@@ -1,52 +1,76 @@
 import numpy as np
 import matplotlib.pyplot as plt
+import matplotlib.gridspec as gridspec
+import matplotlib.animation as animation
 
 from .lattice import Lattice
 
 class Ferro2DSim:
+
     """Ferro2DSim class that will setup and perform an
     Ising-like simulation of P vectors in a ferroelectric double well
       Random field defects are supported. The model is based on the paper by Ricinschii et al.
-      J. Phys.: Condens. Matter 10 (1998) 477–492.
-      Don't take this model too seriously. It's grossly wrong, but it's still fun.
-
-    The methods available are:
-
-    setPosition(): sets the (x,y) location of the object
-    getPosition(): returns the position of the object
-
-    setP(): sets the polarization value
-    getP(): gets the polarization value
-
-    calcDeriv(): calculates the derivative
-    caldODE(): solve the ODE
-
+      J. Phys.: Condens. Matter 10 (1998) 477–492, but has been considerably extended.
+    
+    All inputs are optional (they will default to values shown below)
+    
     Inputs: - n: (int) Size of lattice. Default = 10
               alpha: (float) alpha term in Landau expansion. Default = -1.85
               beta: (float) beta term in Landau expansion. Default = 1.25
               gamma: (float) kinetic coefficient in LK equation (~wall mobility). Default = 2.0
-              k: (float) coupling constant for nearest neighbors in this model. Default = 1.0. Would be lower near PT/for relaxors, etc.
+              k: (float or list of floats) coupling constant(s) for nearest neighbors in this model. Default = 1.0. 
+                    If providing a list, it should be of length (n*n). 
+                    This is provided in case you want to model random-bond disorder
+              
+              time_vec: (optional) (numpy array of size (time_steps,) If passing an applied electric field,
+              then also pass the time vector,  i.e. np.linspace(0,max_time, time_steps)
+              
+              appliedE: (optional) (numpy array of size (time_steps, 2) indicating applied electric field 
+              in units of Ec (Ec is nominal coercive field) for both x and y components
+                                    
+              defects: (optional) list of tuples of length (n*n) with each tuple (RFx, RFy) being floats. 
+              If none provided, then (RFx,RFy) is (0,0) at all sites.
+              This stipulates the strength of the random field defects at each site and will be multipled by Ec, the nominal coercive field
               r: (float) Radius for nearest neighbor correlations. Default = 1.1 (nearest neighbor only)
-              t_max: (float) time max (will create a time vector from [0,time_max] with 1000 steps). Default = 1.0
-              E_frac: (float), Electric field maximum as a ratio over coercive field. Default = 80
-              defect_number: (int) number of defects (must be less than n^2). Will place defects at random sites.
-              rfield_strength: (float) Strength of the random field, as a fraction of Ec. E_bi Will be randomly distributed around this value.
+              rTip: (int) Tip radius. This is not really used properly so ignore for timebeing. Default = 3
+              
+              
+              
     """
 
     def __init__(self, n=10, alpha=-1.6, beta=1.0, gamma=1.0,
                  k=1, r=1.1,rTip = 3.0, dep_alpha = 0.2,
                  time_vec = None, defects = None,
-                 appliedE = none, initial_p = None): #if you wish to pass a custom electric field, then also supply the time vector
+                 appliedE = None, initial_p = None):
 
-        self.alpha = alpha
+        self.alpha = alpha #TODO: Need to add temperature dependence
         self.beta = beta
         self.gamma = gamma  # kinetic coefficient
-        self.Ec = (-2 / 3) * self.alpha * np.sqrt((-self.alpha / (3 * self.beta)))
-        #self.E_frac = E_frac
-        self.k = k
+        self.rTip = rTip  # Radius of the tip
+        self.r = r  # how many nearest neighbors to search for (radius)
         self.n = n
-        self.r = r #how many nearest neighbors to search for (radius)
+        self.Pmat = []
 
+        #Now we have to see if matrices were passed for the coupling constants and depolarization alphas
+        if len(np.array([k]))==1:
+            self.k = np.full(shape=(self.n*self.n), fill_value = k)
+        else:
+            #Do some checks
+            if len(k)!=n*n:
+                raise ShapeError("Length of provided coupling list should be {}, instead received {}".format(n,len(k)))
+            else:
+                self.k = k
+
+        if len(np.array([dep_alpha]))==1:
+            self.dep_alpha = np.full(shape=(self.n*self.n), fill_value=dep_alpha)
+        else:
+            # Do some checks
+            if len(dep_alpha)!=n*n:
+                raise ShapeError("Length of provided coupling list should be {}, instead received {}".format(n,len(dep_alpha)))
+            else:
+                self.dep_alpha = dep_alpha
+
+        self.Ec = (-2 / 3) * self.alpha * np.sqrt((-self.alpha / (3 * self.beta)))
         if time_vec is not None or appliedE is not None:
             if appliedE is None and time_vec is not None:
                 raise ValueError("You have supplied a time vector but not a field vector. This is not allowed. You must supply both")
@@ -57,12 +81,14 @@ class Ferro2DSim:
             self.t_max = 1.0
             self.time_steps = 1000
             self.time_vec = np.linspace(0, self.t_max, self.time_steps)
+            self.appliedE = np.zeros((self.time_steps, 2))
+            self.appliedE[:, 1] = 10*self.Ec * np.sin(self.time_vec[:] * 2 * np.pi * 2) #field is by default in y direction
 
-            self.appliedE = 10*self.Ec * np.sin(self.time_vec[:] * 2 * np.pi * 2)
-        elif time_vec is not None and appliedE is not None:
+        if time_vec is not None and appliedE is not None:
             self.t_max = np.max(time_vec)
             self.time_steps = len(time_vec)
-            self.appliedE = appliedE
+            if appliedE.shape[1]!=2: raise ShapeError ("Shape of applied field should be (time_steps,2). Input correct shape.")
+            self.appliedE = appliedE*self.Ec
             self.time_vec = time_vec
 
         #We are going to define random fields based on the input of defects
@@ -72,50 +98,15 @@ class Ferro2DSim:
         if defects is None:
             self.Eloc = [(0,0) for ind in range(self.n*self.n)]
         else:
+            if len(defects)!=self.n*self.n: raise ShapeError("Length of defects is not equal to total number of lattice sites. Pass correct shape ")
             self.Eloc = [(Ex*self.Ec,Ey*self.Ec) for (Ex,Ey) in defects] #We will worry about random bond defects later.
-
-
-        self.t_max = t_max
-        self.defect_number = defect_number
-        self.rfield_strength = rfield_strength
-        self.rTip = rTip  # Radius of the tip
-        self.time_steps = 1000  # hard wired for now
-        self.pval = 1.0  # hard wired for now. Polarization at 0th time step
-        self.dep_alpha = dep_alpha #depolarization alpha
-
-        # Pass the polarization value along with (x,y) tuple for location of atom
-        #self.P = np.zeros(shape=(self.time_steps))
-        #self.P[0] = self.pval
-        #self.position = (0, 0)
 
         pr = -1 * np.sqrt(-self.alpha / self.beta) #/ (self.n * self.n)  # Remnant polarization, y component
 
-        if self.initial_p is None: self.initial_p = [0,pr] #assuming zero x component
+        if initial_p is None: self.initial_p = [0,pr] #assuming zero x component
         else: self.initial_p = initial_p
 
-        #self.E, self.appliedE, self.time_vec = self.setup_field()  # setup the electic field
-
         self.atoms = self.setup_lattice()  # setup the lattice
-    '''
-    def setup_field(self):
-        time_vec = np.linspace(0, self.t_max, self.time_steps)
-
-        # Field and degraded regions
-        #E = Eappl + Edep + Eloc
-
-        E = np.zeros(shape=(2, len(time_vec), self.n * self.n))
-        Ebi = np.zeros(shape=(self.n * self.n))
-        Ec = (-2 / 3) * self.alpha * np.sqrt((-self.alpha / (3 * self.beta)))
-        E0 = self.E_frac * Ec
-        rand_selection = np.random.choice(range(self.n * self.n), size=self.defect_number, replace=False)
-        Ebi[rand_selection] = np.random.rand(len(rand_selection)) * Ec * self.rfield_strength
-
-        for i in range(self.n * self.n):
-            E[1, 1:, i] = E0 * np.sin(time_vec[1:] * 2 * np.pi * 2) + Ebi[i] #field only in y direction
-
-        appliedE = E0 * np.sin(time_vec[1:] * 2 * np.pi * 2)
-
-        return E, appliedE, time_vec'''
 
     def setup_lattice(self):
         atoms = []
@@ -191,7 +182,7 @@ class Ferro2DSim:
 
         return np.sum(p_nhood,axis=0)
 
-    def calDeriv(self, p_n, sum_p, Evec, total_p):
+    def calDeriv(self, index, p_n, sum_p, Evec, total_p):
 
         #total_p should be a tuple with (px, py).
 
@@ -204,29 +195,24 @@ class Ferro2DSim:
         Evec_x = Evec[0]
         Evec_y = Evec[1]
 
-        Eloc_x = Evec_x - self.dep_alpha*total_p[0] + self.Eloc[i][0]
-        Eloc_y = Evec_y - self.dep_alpha * total_p[1] + self.Eloc[i][1]
+        Eloc_x = Evec_x - self.dep_alpha[index] * total_p[0] + self.Eloc[index][0]
+        Eloc_y = Evec_y - self.dep_alpha[index] * total_p[1] + self.Eloc[index][1]
 
-        xcomp_derivative = -self.gamma * (self.beta * p_nx ** 3 + self.alpha * p_nx + self.k * (p_nx - sum_px/4) - Eloc_x)
-        ycomp_derivative = -self.gamma * (self.beta * p_ny ** 3 + self.alpha * p_ny + self.k * (p_ny - sum_py/4) - Eloc_y)
+        xcomp_derivative = -self.gamma * (self.beta * p_nx ** 3 + self.alpha * p_nx + self.k[index] * (p_nx - sum_px/4) - Eloc_x)
+        ycomp_derivative = -self.gamma * (self.beta * p_ny ** 3 + self.alpha * p_ny + self.k[index] * (p_ny - sum_py/4) - Eloc_y)
 
         return [xcomp_derivative, ycomp_derivative]
 
     def calcODE(self):
 
-        # Calculatethe ODE (Landau-Khalatnikov 4th order expansion), return dp/dt and P
+        # Calculate the ODE (Landau-Khalatnikov 4th order expansion), return dp/dt and P
 
         N = self.n * self.n
-
         dpdt = np.zeros(shape=(N, 2, len(self.time_vec))) #N lattice sites, 2 dim (x,y) for P, 1 time dim
-        #p = np.zeros(shape=(N, 2, len(self.time_vec)))
         pnew = np.zeros(shape=(N, 2, len(self.time_vec)))
         dt = self.time_vec[1] - self.time_vec[0]
 
         # For t = 0
-        #Assume start at remnant pr
-        #p[:, 0] = pr Not sure we even use this?
-
         pnew[:,:, 0] = self.initial_p
 
         # t=1
@@ -239,12 +225,14 @@ class Ferro2DSim:
             total_py = np.sum(pnew[:,1,0])
             total_p = (total_px, total_py)
 
-            dpdt[i, :, 1] = self.calDeriv(p_i, sum_p, self.E[:,1,i], total_p)
+            dpdt[i, :, 1] = self.calDeriv(i, p_i, sum_p, self.appliedE[1,:], total_p)
             pnew[i, :, 1] = p_i + dpdt[i,:, 1] * dt
 
             self.atoms[i].setP(1, p_i + dpdt[i, :,1] * dt)
-
+        #t>1
         for t in np.arange(2, len(self.time_vec)):
+
+            dt = self.time_vec[t] - self.time_vec[t-1]
 
             for i in np.arange(0, N):
                 p_i = pnew[i,:, t - 1]
@@ -252,10 +240,8 @@ class Ferro2DSim:
                 total_px = np.sum(pnew[:, 0, t-1])
                 total_py = np.sum(pnew[:, 1, t-1])
                 total_p = (total_px,total_py)
-                #total_p = np.sqrt(total_px ** 2 + total_py ** 2)
-                #total_p = np.sum(pnew[:,t-1]) #total polarization
 
-                dpdt[i,:, t] = self.calDeriv(p_i, sum_p, self.E[:,t, i], total_p)
+                dpdt[i,:, t] = self.calDeriv(i, p_i, sum_p, self.appliedE[t,:], total_p)
                 pnew[i,:, t] = p_i + dpdt[i,:, t] * dt
                 self.atoms[i].setP(t, p_i + dpdt[i, :,t] * dt)
 
@@ -264,7 +250,6 @@ class Ferro2DSim:
     def plot_quiver(self, time_step = None):
         #Plots a time sequence of P maps as quiver plots
         #if time step is provided then it plots only that time step
-
 
         if time_step is None:
             time_steps_chosen = [int(x) for x in np.linspace(0, self.time_steps-1, 9)]
@@ -328,21 +313,7 @@ class Ferro2DSim:
         plt.ylabel('Amplitude')
         plt.legend(loc='best')
 
-        '''
-        fig105 = plt.figure(105)
-        fig, axes = plt.subplots(nrows=5, ncols=5, figsize = (12,12))
-        time_steps_chosen = [int(x) for x in np.linspace(1, self.time_steps-1, 25)]
-
-        max_pr = np.max(self.results['measuredResponse'])
-        min_pr = np.min(self.results['measuredResponse'])
-
-        for ind, ax in enumerate(axes.flat):
-            ax.imshow(self.results['measuredResponse'][:,:,time_steps_chosen[ind]])#  vmin = min_pr, vmax = max_pr
-            ax.axis('off')
-            ax.set_title('PR at t = {}'.format(time_steps_chosen[ind]))
-        fig.tight_layout()
-        '''
-        return
+        return [fig101, fig102, fig103, fig104]
     
     def getPmat(self):
         "Returns the polarization matrix of shape (2,t,N,N) after simulation has been executed."
@@ -358,8 +329,39 @@ class Ferro2DSim:
         return Pmat
 
     def make_interactive_plot(self):
-        #Here we need to make an interactive plot that we can scrub through. It should also allow you to export to videos.
-        #WIll add soon.
+        if self.Pmat == []: self.getPmat()
+
+        fig2 = plt.figure(constrained_layout=True, figsize=(6, 6))
+        spec2 = gridspec.GridSpec(ncols=3, nrows=3, figure=fig2, )
+        ax1 = fig2.add_subplot(spec2[:-1, :])
+        ax2 = fig2.add_subplot(spec2[-1, :])
+        Pmat = self.Pmat
+        time_vec = self.time_vec
+        applied_field = self.appliedE
+
+        def updateData(curr):
+            if curr <= 2: return
+            for ax in (ax1, ax2):
+                ax.clear()
+            ax1.quiver(Pmat[0, curr, :, :], Pmat[1, curr, :, :])
+            ax1.set_title('Time Step: {}'.format(curr))
+            ax1.axis('off')
+            ax1.axis('equal')
+            # Electric field in x direction
+            ax2.plot(time_vec, applied_field[:, 0], 'k--', label='$E_x$')
+            ax2.plot(time_vec[curr], applied_field[curr, 0], 'ro')
+
+            # Electric field in y direction
+            ax2.plot(time_vec, applied_field[:, 1], 'b--', label='$E_y$')
+            ax2.plot(time_vec[curr], applied_field[curr, 1], 'ko')
+            ax2.set_xlabel('Time Step')
+            ax2.set_ylabel('Field (/$E_c$)')
+
+
+        fig2.tight_layout()
+        simulation = animation.FuncAnimation(fig2, updateData, interval=50, frames=range(0, self.time_steps, 5), repeat=False)
+
+        plt.show()
 
         return
 
