@@ -2,6 +2,9 @@ import numpy as np
 import matplotlib.pyplot as plt
 import matplotlib.gridspec as gridspec
 import matplotlib.animation as animation
+from mpl_toolkits.axes_grid1 import make_axes_locatable
+
+#TODO: Plotting might have to be taken out into a separete utils file. It's starting to take up too much room here.
 
 from .lattice import Lattice
 
@@ -383,6 +386,36 @@ class Ferro2DSim:
 
         return sim_animation
 
+    def plot_mag_ang(self, time_step=0):
+        '''Returns a plot of the P distribution as a magnitude/angle plot, and also provides the matrices
+         Takes as input the time step (default = 0)'''
+
+        magnitude, angle = self.return_angles_and_magnitude(self.Pmat[:, time_step, :, :])
+
+        # Plot it
+        fig, axes = plt.subplots(nrows=1, ncols=2, figsize=(12, 6))
+
+        im1 = axes[0].imshow(angle, cmap='bwr')
+        axes[0].set_title('Angle')
+        divider = make_axes_locatable(axes[0])
+        cax = divider.append_axes('right', size='5%', pad=0.05)
+        cb1 = fig.colorbar(im1, cax=cax, orientation='vertical')
+        cb1.ax.set_ylabel('Angle (rad.)')
+        axes[0].quiver(self.Pmat[0, time_step, :, :], self.Pmat[1, time_step, :, :],
+                       color='black', edgecolor='black', linewidth=0.5)
+
+        im2 = axes[1].imshow(magnitude, cmap='bwr')
+        divider = make_axes_locatable(axes[1])
+        cax = divider.append_axes('right', size='5%', pad=0.05)
+        cb2 = fig.colorbar(im2, cax=cax, orientation='vertical')
+        axes[1].set_title('Magnitude')
+        cb2.ax.set_ylabel('Magnitude')
+        axes[1].quiver(self.Pmat[0, time_step, :, :], self.Pmat[1, time_step, :, :],
+                       color='black', edgecolor='black', linewidth=0.5)
+        fig.tight_layout()
+
+        return fig, magnitude, angle
+
     @staticmethod
     def makeCircle(xsize, ysize, xpt, ypt, radius):
         # Returns a numpy array with a circle in a grid of size (xsize,ysize)
@@ -406,3 +439,22 @@ class Ferro2DSim:
         # return the indexes of nearest neighbours within radius R
         idx = (np.where((sqd > 0) & (sqd <= R)))
         return idx, sqd
+
+    @staticmethod
+    def return_angles_and_magnitude(Pvals):
+        # Pvals is of shape #2,n,n
+        Pvals_lin = np.reshape(Pvals, (2, Pvals.shape[1] * Pvals.shape[2]))
+        magnitude = np.zeros(Pvals.shape[1] * Pvals.shape[2])
+        angle = np.zeros(Pvals.shape[1] * Pvals.shape[2])
+        for ind in range(Pvals_lin.shape[-1]):
+            magnitude[ind] = np.sqrt(Pvals_lin[0, ind] ** 2 + Pvals_lin[1, ind] ** 2)
+            vector_1 = [1, 0]
+            vector_2 = [Pvals_lin[0, ind], Pvals_lin[1, ind]]
+            unit_vector_1 = vector_1 / np.linalg.norm(vector_1)
+            unit_vector_2 = vector_2 / np.linalg.norm(vector_2)
+            dot_product = np.dot(unit_vector_1, unit_vector_2)
+            angle[ind] = np.arccos(dot_product)
+
+        return magnitude.reshape(Pvals.shape[1], Pvals.shape[2]), \
+               angle.reshape(Pvals.shape[1], Pvals.shape[2])
+
