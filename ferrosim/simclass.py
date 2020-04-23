@@ -41,7 +41,7 @@ class Ferro2DSim:
     def __init__(self, n=10, alpha=-1.6, beta=1.0, gamma=1.0,
                  k=1, r=1.1,rTip = 3.0, dep_alpha = 0.0,
                  time_vec = None, defects = None,
-                 appliedE = None, initial_p = None):
+                 appliedE = None, initial_p = None, init = 'pr'):
 
         self.alpha = alpha #TODO: Need to add temperature dependence
         self.beta = beta
@@ -102,9 +102,11 @@ class Ferro2DSim:
             self.Eloc = [(Ex*self.Ec,Ey*self.Ec) for (Ex,Ey) in defects] #We will worry about random bond defects later.
 
         pr = -1 * np.sqrt(-self.alpha / self.beta) #/ (self.n * self.n)  # Remnant polarization, y component
-
-        if initial_p is None: self.initial_p = [0,pr] #assuming zero x component
-        else: self.initial_p = initial_p
+        if init =='pr':
+            self.init = 'pr'
+            if initial_p is None: self.initial_p = [0,pr] #assuming zero x component
+            else: self.initial_p = initial_p
+        elif init =='random': self.init = 'random'
 
         self.atoms = self.setup_lattice()  # setup the lattice
 
@@ -114,8 +116,13 @@ class Ferro2DSim:
 
         for i in range(self.n):
             for j in range(self.n):
-                atoms.append(
+                if self.init =='pr':
+                    atoms.append(
                     Lattice(self.initial_p, (i, j), len(self.time_vec)))  # Make lattice objects for each lattice site.
+                elif self.init =='random':
+                    prand = 0.5*tuple(np.random.randn(2))
+                    atoms.append(
+                    Lattice(prand, (i, j), len(self.time_vec)))  # Make lattice objects for each lattice site.
 
         for ind in range(len(atoms)):
             pos_vec[:, ind] = np.array(atoms[ind].getPosition())  # put the positions into pos_vec
