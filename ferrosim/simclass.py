@@ -120,7 +120,7 @@ class Ferro2DSim:
                     atoms.append(
                     Lattice(self.initial_p, (i, j), len(self.time_vec)))  # Make lattice objects for each lattice site.
                 elif self.init =='random':
-                    prand = 0.5*tuple(np.random.randn(2))
+                    prand = tuple(0.5*np.random.randn(2))
                     atoms.append(
                     Lattice(prand, (i, j), len(self.time_vec)))  # Make lattice objects for each lattice site.
 
@@ -220,7 +220,8 @@ class Ferro2DSim:
         dt = self.time_vec[1] - self.time_vec[0]
 
         # For t = 0
-        pnew[:,:, 0] = self.initial_p
+        initial_p_distribution = self.getPmat(time_step=0)
+        pnew[:,:, 0] = np.transpose(initial_p_distribution.reshape(2, self.n*self.n))
 
         # t=1
         for i in range(N):
@@ -324,17 +325,25 @@ class Ferro2DSim:
 
         return
     
-    def getPmat(self):
-        "Returns the polarization matrix of shape (2,t,N,N) after simulation has been executed."
-        Pmat = np.zeros(shape=(2,self.time_steps, self.n, self.n))
+    def getPmat(self, time_step=None):
+        "Returns the polarization matrix of shape (2,t,N,N) after simulation has been executed, or at given time step"
+        if time_step==None:
 
-        for ind in range(self.time_steps):
+            Pmat = np.zeros(shape=(2,self.time_steps, self.n, self.n))
+            for ind in range(self.time_steps):
+                Pvals = np.zeros(shape=(2, self.n * self.n))
+                for i in range(self.n * self.n):
+                    Pvals[:,i] = self.atoms[i].getP(ind)
+                Pmat[:, ind, :, :] = Pvals[:,:].reshape(2,self.n, self.n)
+
+            self.Pmat = Pmat
+        else:
+            Pmat = np.zeros(shape=(2, self.n, self.n))
             Pvals = np.zeros(shape=(2, self.n * self.n))
             for i in range(self.n * self.n):
-                Pvals[:,i] = self.atoms[i].getP(ind)
-            Pmat[:, ind, :, :] = Pvals[:,:].reshape(2,self.n, self.n)
-            
-        self.Pmat = Pmat
+                Pvals[:, i] = self.atoms[i].getP(time_step)
+            Pmat[:,:,:] = Pvals.reshape(2,self.n, self.n)
+
         return Pmat
 
     def make_interactive_plot(self):
