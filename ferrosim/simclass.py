@@ -3,7 +3,7 @@ import matplotlib.pyplot as plt
 import matplotlib.gridspec as gridspec
 import matplotlib.animation as animation
 from mpl_toolkits.axes_grid1 import make_axes_locatable
-
+from tqdm import tqdm
 #TODO: Plotting might have to be taken out into a separete utils file. It's starting to take up too much room here.
 
 from .lattice import Lattice
@@ -192,6 +192,7 @@ class Ferro2DSim:
 
         return np.sum(p_nhood,axis=0)
 
+
     def calDeriv(self, index, p_n, sum_p, Evec, total_p):
 
         #total_p should be a tuple with (px, py).
@@ -241,7 +242,8 @@ class Ferro2DSim:
 
             self.atoms[i].setP(1, p_i + dpdt[i, :,1] * dt)
         #t>1
-        for t in np.arange(2, len(self.time_vec)):
+        print('---Performing simulation---')
+        for t in tqdm(np.arange(2, len(self.time_vec))):
 
             dt = self.time_vec[t] - self.time_vec[t-1]
 
@@ -364,10 +366,21 @@ class Ferro2DSim:
             if curr <= 2: return
             for ax in (ax1, ax2):
                 ax.clear()
-            ax1.quiver(Pmat[0, curr, :, :], Pmat[1, curr, :, :])
+            _, angle = self.return_angles_and_magnitude(Pmat[:, curr, :, :])
+
+            ax1.imshow(angle, cmap='bwr')
+            #divider = make_axes_locatable(ax1)
+            #cax = divider.append_axes('right', size='5%', pad=0.05)
+            #cb1 = fig.colorbar(im1, cax=cax, orientation='vertical')
+            #cb1.ax.set_ylabel('Angle (rad.)')
+            ax1.quiver(Pmat[0, curr, :, :], Pmat[1, curr, :, :],
+                           color='black', edgecolor='black', linewidth=0.5)
+
+            #ax1.quiver(Pmat[0, curr, :, :], Pmat[1, curr, :, :])
+
             ax1.set_title('Time Step: {}'.format(curr))
-            ax1.axis('off')
-            ax1.axis('equal')
+            #ax1.axis('off')
+            #ax1.axis('equal')
             # Electric field in x direction
             ax2.plot(time_vec, applied_field[:, 0], 'k--', label='$E_x$')
             ax2.plot(time_vec[curr], applied_field[curr, 0], 'ro')
