@@ -219,18 +219,19 @@ class Ferro2DSim:
 
         xcomp_derivative = -self.gamma * (self.beta * p_nx ** 3 +
                                           self.alpha * p_nx + self.k[index] * (p_nx - sum_px/4) - Eloc_x)
-        ycomp_derivative = -self.gamma * (self.beta * p_ny ** 3
-                                          + self.alpha * p_ny + self.k[index] * (p_ny - sum_py/4) - Eloc_y)
+        ycomp_derivative = -self.gamma * (self.beta * p_ny ** 3 +
+                                           self.alpha * p_ny + self.k[index] * (p_ny - sum_py/4) - Eloc_y)
 
-        new_x_derivative = -self.gamma*(self.alpha * mag_p + mag_p**3 * (self.beta0 - self.beta1*(n1**4 + n2**4)) +
+        new_x_derivative = -self.gamma*(
+                self.alpha * mag_p + mag_p**3 * (self.beta0 - self.beta1*(n1**4 + n2**4)) +
                                         self.k[index] * (p_nx - sum_px / 4) - Eloc_x)
 
         new_y_derivative = -self.gamma * (
                     self.alpha * mag_p + mag_p ** 3 * (self.beta0 - self.beta1 * (n1 ** 4 + n2 ** 4)) +
                     self.k[index] * (p_ny - sum_py / 4) - Eloc_y)
 
-        #return [xcomp_derivative, ycomp_derivative]
-        return [new_x_derivative, new_y_derivative]
+        return [xcomp_derivative, ycomp_derivative]
+        #return [new_x_derivative, new_y_derivative]
 
     def calcODE(self):
 
