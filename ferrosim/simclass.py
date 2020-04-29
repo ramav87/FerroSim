@@ -219,6 +219,7 @@ class Ferro2DSim:
 
         xcomp_derivative = -self.gamma * (self.beta * p_nx ** 3 +
                                           self.alpha * p_nx + self.k[index] * (p_nx - sum_px/4) - Eloc_x)
+
         ycomp_derivative = -self.gamma * (self.beta * p_ny ** 3 +
                                            self.alpha * p_ny + self.k[index] * (p_ny - sum_py/4) - Eloc_y)
 
@@ -250,7 +251,7 @@ class Ferro2DSim:
         for i in range(N):
 
             p_i = pnew[i, :, 0]
-            sum_p = self.getPNeighbors(i, 0)
+            sum_p, _ = self.getPNeighbors(i, 0)
 
             total_px = np.sum(pnew[:,0,0])
             total_py = np.sum(pnew[:,1,0])
@@ -268,7 +269,7 @@ class Ferro2DSim:
 
             for i in np.arange(0, N):
                 p_i = pnew[i,:, t - 1]
-                sum_p = self.getPNeighbors(i, t - 1)
+                sum_p,_ = self.getPNeighbors(i, t - 1)
                 total_px = np.sum(pnew[:, 0, t-1])
                 total_py = np.sum(pnew[:, 1, t-1])
                 total_p = (total_px,total_py)
