@@ -48,6 +48,8 @@ class Ferro2DSim:
 
         self.alpha = alpha #TODO: Need to add temperature dependence
         self.beta = beta
+        self.beta0 = 1.0
+        self.beta1 = 0.5
         self.gamma = gamma  # kinetic coefficient
         self.rTip = rTip  # Radius of the tip
         self.r = r  # how many nearest neighbors to search for (radius)
@@ -179,7 +181,7 @@ class Ferro2DSim:
         return results
 
     def getPNeighbors(self, index, t):
-        """This function will return the sum of the polarization values of
+        """This function will return the actual, and sum, of the polarization values of
         the nearest neighbors as a list, given the index and the time step"""
 
         nhood_ind = self.atoms[index].getNeighborIndex()
@@ -190,7 +192,7 @@ class Ferro2DSim:
             p_val = self.atoms[index].getP(t)
             p_nhood.append(p_val)
 
-        return np.sum(p_nhood,axis=0)
+        return np.sum(p_nhood,axis=0), p_nhood
 
 
     def calDeriv(self, index, p_n, sum_p, Evec, total_p):
@@ -199,6 +201,12 @@ class Ferro2DSim:
 
         p_nx = p_n[0] # x component
         p_ny = p_n[1] # y component
+
+        #unit vector in direction of p
+        mag_p = np.sqrt(p_nx**2 + p_ny**2)
+        unit_vector = [p_nx, p_ny] / mag_p
+        n1 = unit_vector[0]
+        n2 = unit_vector [1]
 
         sum_px= sum_p[0]
         sum_py= sum_p[1]
@@ -209,10 +217,20 @@ class Ferro2DSim:
         Eloc_x = Evec_x - self.dep_alpha[index] * total_p[0] + self.Eloc[index][0]
         Eloc_y = Evec_y - self.dep_alpha[index] * total_p[1] + self.Eloc[index][1]
 
-        xcomp_derivative = -self.gamma * (self.beta * p_nx ** 3 + self.alpha * p_nx + self.k[index] * (p_nx - sum_px/4) - Eloc_x)
-        ycomp_derivative = -self.gamma * (self.beta * p_ny ** 3 + self.alpha * p_ny + self.k[index] * (p_ny - sum_py/4) - Eloc_y)
+        xcomp_derivative = -self.gamma * (self.beta * p_nx ** 3 +
+                                          self.alpha * p_nx + self.k[index] * (p_nx - sum_px/4) - Eloc_x)
+        ycomp_derivative = -self.gamma * (self.beta * p_ny ** 3
+                                          + self.alpha * p_ny + self.k[index] * (p_ny - sum_py/4) - Eloc_y)
 
-        return [xcomp_derivative, ycomp_derivative]
+        new_x_derivative = -self.gamma*(self.alpha * mag_p + mag_p**3 * (self.beta0 - self.beta1*(n1**4 + n2**4)) +
+                                        self.k[index] * (p_nx - sum_px / 4) - Eloc_x)
+
+        new_y_derivative = -self.gamma * (
+                    self.alpha * mag_p + mag_p ** 3 * (self.beta0 - self.beta1 * (n1 ** 4 + n2 ** 4)) +
+                    self.k[index] * (p_ny - sum_py / 4) - Eloc_y)
+
+        #return [xcomp_derivative, ycomp_derivative]
+        return [new_x_derivative, new_y_derivative]
 
     def calcODE(self):
 
