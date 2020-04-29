@@ -230,8 +230,8 @@ class Ferro2DSim:
                     self.alpha * mag_p + mag_p ** 3 * (self.beta0 - self.beta1 * (n1 ** 4 + n2 ** 4)) +
                     self.k[index] * (p_ny - sum_py / 4) - Eloc_y)
 
-        return [xcomp_derivative, ycomp_derivative]
-        #return [new_x_derivative, new_y_derivative]
+        #return [xcomp_derivative, ycomp_derivative]
+        return [new_x_derivative, new_y_derivative]
 
     def calcODE(self):
 
