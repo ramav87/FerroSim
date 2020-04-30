@@ -204,7 +204,7 @@ class Ferro2DSim:
                 except KeyError:
                     print("Dictionary doesn't contain required keys. The keys for model {} \
                           are 'alpha1', 'alpha2' and 'alpha3' .Reverting to default.".format(self.mode))
-                    self.alpha1 = -1.6
+                    self.alpha1 = -10.6
                     self.alpha2 = 10.2
                     self.alpha3 = -10.0
             else:
