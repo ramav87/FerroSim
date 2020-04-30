@@ -18,9 +18,9 @@ class Ferro2DSim:
     All inputs are optional (they will default to values shown below)
     
     Inputs: - n: (int) Size of lattice. Default = 10
-              alpha: (float) alpha term in Landau expansion. Default = -1.85
-              beta: (float) beta term in Landau expansion. Default = 1.25
+
               gamma: (float) kinetic coefficient in LK equation (~wall mobility). Default = 2.0
+
               k: (float or list of floats) coupling constant(s) for nearest neighbors in this model. Default = 1.0. 
                     If providing a list, it should be of length (n*n). 
                     This is provided in case you want to model random-bond disorder
@@ -34,27 +34,37 @@ class Ferro2DSim:
               defects: (optional) list of tuples of length (n*n) with each tuple (RFx, RFy) being floats. 
               If none provided, then (RFx,RFy) is (0,0) at all sites.
               This stipulates the strength of the random field defects at each site and will be multipled by Ec, the nominal coercive field
+
               r: (float) Radius for nearest neighbor correlations. Default = 1.1 (nearest neighbor only)
+
               rTip: (int) Tip radius. This is not really used properly so ignore for timebeing. Default = 3
+
               dep_alpha (float): Depolarization constant (will be multipled by total polarization and subtracted from energy at lattice site). Default = 0
-              
+
+              mode: (optional) (string) Mode of simulation. Can choose 'uniaxial', 'squreelectric', 'tetragonal' or 'rhomnohedral'. Consult documentation for details.
+
+              landau_parms: (optional) (dictionary) . Dictionary containing Landau parameters. You will need to provide according to 'mode'. Consult documentation for details.
+
+              Note: if you wish to change the coeffiicents in the functional, you should pass a dictionary
+              with the necessary parameters upon initialization.
               
     """
 
-    def __init__(self, n=10, alpha=-1.6, beta=1.0, gamma=1.0,
+    def __init__(self, n=10, gamma=1.0,
                  k=1, r=1.1,rTip = 3.0, dep_alpha = 0.0,
                  time_vec = None, defects = None,
-                 appliedE = None, initial_p = None, init = 'pr'):
+                 appliedE = None, initial_p = None, init = 'pr', mode = 'tetragonal',
+                 landau_parms = None):
 
-        self.alpha = alpha #TODO: Need to add temperature dependence
-        self.beta = beta
-        self.beta0 = 1.0
-        self.beta1 = 0.5
         self.gamma = gamma  # kinetic coefficient
         self.rTip = rTip  # Radius of the tip
         self.r = r  # how many nearest neighbors to search for (radius)
         self.n = n
+        self.mode = mode
         self.Pmat = []
+        self._set_Landau_parms(landau_parms)
+
+        np.seterr('raise') #raise errors for debugging purpose
 
         #Now we have to see if matrices were passed for the coupling constants and depolarization alphas
         if len(np.array([k]))==1:
@@ -75,7 +85,7 @@ class Ferro2DSim:
             else:
                 self.dep_alpha = dep_alpha
 
-        self.Ec = (-2 / 3) * self.alpha * np.sqrt((-self.alpha / (3 * self.beta)))
+        self.Ec = (-2 / 3) * self.alpha1 * np.sqrt(np.abs(-self.alpha1 / (3 * self.alpha2)))
         if time_vec is not None or appliedE is not None:
             if appliedE is None and time_vec is not None:
                 raise AssertionError("You have supplied a time vector but not a field vector. This is not allowed. You must supply both")
@@ -106,16 +116,16 @@ class Ferro2DSim:
             if len(defects)!=self.n*self.n: raise ShapeError("Length of defects is not equal to total number of lattice sites. Pass correct shape ")
             self.Eloc = [(Ex*self.Ec,Ey*self.Ec) for (Ex,Ey) in defects] #We will worry about random bond defects later.
 
-        pr = -1 * np.sqrt(-self.alpha / self.beta) #/ (self.n * self.n)  # Remnant polarization, y component
+        pr = -1 * np.sqrt(np.abs(-self.alpha1 / self.alpha2)) #/ (self.n * self.n)  # Remnant polarization, y component
         if init =='pr':
             self.init = 'pr'
             if initial_p is None: self.initial_p = [0,pr] #assuming zero x component
             else: self.initial_p = initial_p
         elif init =='random': self.init = 'random'
 
-        self.atoms = self.setup_lattice()  # setup the lattice
+        self.atoms = self._setup_lattice()  # setup the lattice
 
-    def setup_lattice(self):
+    def _setup_lattice(self):
         atoms = []
         pos_vec = np.zeros(shape=(2, self.n * self.n))
 
@@ -146,6 +156,65 @@ class Ferro2DSim:
             atoms[ind].updateDistance(d[neigh_idx])
 
         return atoms
+
+    def _set_Landau_parms(self, landau_parms):
+        #Will set the Landau parameters
+
+        if self.mode == 'uniaxial' or self.mode == 'squareelectric':
+            #uniaxial and squareelectric model requires only alpha1, alpha2
+            if landau_parms is not None:
+                try:
+                    self.alpha1 = landau_parms['alpha1']
+                    self.alpha2 = landau_parms['alpha2']
+                except KeyError:
+                    print("Dictionary doesn't contain required keys. The keys for model {} \
+                          are 'alpha1' and 'alpha2'.Reverting to default.".format(self.mode))
+                    self.alpha1 = -1.85
+                    self.alpha2 = 1.25
+            else:
+                #If we dont have a dictionary passed, use defaults
+                self.alpha1 = -1.85
+                self.alpha2 = 1.25
+        elif self.mode == 'tetragonal':
+            #tetragonal requires alpha1, alpha2 and alpha3
+            if landau_parms is not None:
+                try:
+                    self.alpha1 = landau_parms['alpha1']
+                    self.alpha2 = landau_parms['alpha2']
+                    self.alpha3 = landau_parms['alpha3']
+                except KeyError:
+                    print("Dictionary doesn't contain required keys. The keys for model {} \
+                          are 'alpha1', 'alpha2' and 'alpha3' .Reverting to default.".format(self.mode))
+                    self.alpha1 = -1.6
+                    self.alpha2 = 12.2
+                    self.alpha3 = 40.0
+
+            else:
+                #If we dont have a dictionary passed, use defaults
+                self.alpha1 = -1.6
+                self.alpha2 = 12.2
+                self.alpha3 = 40.0
+        elif self.mode == 'rhombohedral':
+            # rhombohedral requires alpha1, alpha2 and alpha3
+            if landau_parms is not None:
+                try:
+                    self.alpha1 = landau_parms['alpha1']
+                    self.alpha2 = landau_parms['alpha2']
+                    self.alpha3 = landau_parms['alpha3']
+                except KeyError:
+                    print("Dictionary doesn't contain required keys. The keys for model {} \
+                          are 'alpha1', 'alpha2' and 'alpha3' .Reverting to default.".format(self.mode))
+                    self.alpha1 = -1.6
+                    self.alpha2 = 10.2
+                    self.alpha3 = -10.0
+            else:
+                # If we dont have a dictionary passed, use defaults
+                self.alpha1 = -10.6
+                self.alpha2 = 10.2
+                self.alpha3 = -10.0
+        else:
+            raise ValueError ("You passed {} but allowable values are 'uniaxial', \
+                              'squareelectric', 'tetragonal', 'rhombohedral' ".format(self.mode))
 
     def runSim(self, calc_pr = False):
         dpdt, pnew = self.calcODE()
@@ -202,11 +271,9 @@ class Ferro2DSim:
         p_nx = p_n[0] # x component
         p_ny = p_n[1] # y component
 
-        #unit vector in direction of p
-        mag_p = np.sqrt(p_nx**2 + p_ny**2)
-        unit_vector = [p_nx, p_ny] / mag_p
-        n1 = unit_vector[0]
-        n2 = unit_vector [1]
+        #Sometimes we get convergence issues. So clip the x and y components to be within a range.
+        p_nx = np.clip(p_nx, -10, 10)
+        p_ny = np.clip(p_ny, -10, 10)
 
         sum_px= sum_p[0]
         sum_py= sum_p[1]
@@ -214,25 +281,35 @@ class Ferro2DSim:
         Evec_x = Evec[0]
         Evec_y = Evec[1]
 
-        Eloc_x = Evec_x - self.dep_alpha[index] * total_p[0] + self.Eloc[index][0]
-        Eloc_y = Evec_y - self.dep_alpha[index] * total_p[1] + self.Eloc[index][1]
+        Eloc_x = Evec_x - self.dep_alpha[index] * total_p[0]/(self.n*self.n) + self.Eloc[index][0]
+        Eloc_y = Evec_y - self.dep_alpha[index] * total_p[1]/(self.n*self.n) + self.Eloc[index][1]
 
-        xcomp_derivative = -self.gamma * (self.beta * p_nx ** 3 +
-                                          self.alpha * p_nx + self.k[index] * (p_nx - sum_px/4) - Eloc_x)
+        if self.mode == 'squareelectric':
+            xcomp_derivative = -self.gamma * (self.alpha2 * p_nx ** 3 +
+                                              self.alpha1 * p_nx + self.k[index] * (p_nx - sum_px/4) - Eloc_x)
 
-        ycomp_derivative = -self.gamma * (self.beta * p_ny ** 3 +
-                                           self.alpha * p_ny + self.k[index] * (p_ny - sum_py/4) - Eloc_y)
+            ycomp_derivative = -self.gamma * (self.alpha2 * p_ny ** 3 +
+                                               self.alpha1 * p_ny + self.k[index] * (p_ny - sum_py/4) - Eloc_y)
+            derivative = [xcomp_derivative, ycomp_derivative]
 
-        new_x_derivative = -self.gamma*(
-                self.alpha * mag_p + mag_p**3 * (self.beta0 - self.beta1*(n1**4 + n2**4)) +
-                                        self.k[index] * (p_nx - sum_px / 4) - Eloc_x)
+        elif self.mode =='uniaxial':
+            ycomp_derivative = -self.gamma * (self.alpha2 * p_ny ** 3 +
+                                              self.alpha1 * p_ny + self.k[index] * (p_ny - sum_py / 4) - Eloc_y)
+            derivative = [0, ycomp_derivative]
+        elif self.mode =='rhombohedral' or self.mode=='tetragonal':
 
-        new_y_derivative = -self.gamma * (
-                    self.alpha * mag_p + mag_p ** 3 * (self.beta0 - self.beta1 * (n1 ** 4 + n2 ** 4)) +
-                    self.k[index] * (p_ny - sum_py / 4) - Eloc_y)
+            new_x_derivative = -self.gamma*(
+                    2*self.alpha1*p_nx + 4*self.alpha2*p_nx**3 + 2*self.alpha3*(p_ny**2) * p_nx +
+                                    self.k[index] * (p_nx - sum_px / 4) - Eloc_x)
 
-        #return [xcomp_derivative, ycomp_derivative]
-        return [new_x_derivative, new_y_derivative]
+            new_y_derivative = -self.gamma * (
+                    2*self.alpha1*p_ny + 4*self.alpha2*p_ny**3 + 2*self.alpha3*(p_nx**2) * p_ny +
+                                    self.k[index] * (p_ny - sum_py / 4) - Eloc_y)
+            derivative = [new_x_derivative, new_y_derivative]
+
+        return derivative
+
+
 
     def calcODE(self):
 
