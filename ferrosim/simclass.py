@@ -54,7 +54,7 @@ class Ferro2DSim:
                  k=1, r=1.1,rTip = 3.0, dep_alpha = 0.0,
                  time_vec = None, defects = None,
                  appliedE = None, initial_p = None, init = 'pr', mode = 'tetragonal',
-                 landau_parms = None):
+                 landau_parms = None, temp=None):
 
         self.gamma = gamma  # kinetic coefficient
         self.rTip = rTip  # Radius of the tip
@@ -63,6 +63,15 @@ class Ferro2DSim:
         self.mode = mode
         self.Pmat = []
         self._set_Landau_parms(landau_parms)
+        self.temp = temp
+        self.T0 = 400
+
+        if self.temp is not None:
+            if landau_parms is None:
+                self.alpha1 = -1*self.alpha1*(self.temp - self.T0) #keep it negative
+            else:
+                self.alpha1 = self.alpha1 * (self.temp - self.T0)
+
 
         np.seterr('raise') #raise errors for debugging purpose
 
@@ -119,7 +128,10 @@ class Ferro2DSim:
         pr = -1 * np.sqrt(np.abs(-self.alpha1 / self.alpha2)) #/ (self.n * self.n)  # Remnant polarization, y component
         if init =='pr':
             self.init = 'pr'
-            if initial_p is None: self.initial_p = [0,pr] #assuming zero x component
+            if initial_p is None:
+                self.initial_p = np.full(self.n, self.n, 2)
+                self.initial_p[:,:,0] = 0 #assume zero x component
+                self.initial_p[:, :, 1] = pr
             else: self.initial_p = initial_p
         elif init =='random': self.init = 'random'
 
@@ -133,7 +145,7 @@ class Ferro2DSim:
             for j in range(self.n):
                 if self.init =='pr':
                     atoms.append(
-                    Lattice(self.initial_p, (i, j), len(self.time_vec)))  # Make lattice objects for each lattice site.
+                    Lattice(self.initial_p[i,j,:], (i, j), len(self.time_vec)))  # Make lattice objects for each lattice site.
                 elif self.init =='random':
                     prand = tuple(0.5*np.random.randn(2))
                     atoms.append(
