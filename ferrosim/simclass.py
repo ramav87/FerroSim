@@ -129,7 +129,7 @@ class Ferro2DSim:
         if init =='pr':
             self.init = 'pr'
             if initial_p is None:
-                self.initial_p = np.full(self.n, self.n, 2)
+                self.initial_p = np.full((self.n, self.n, 2), 0)
                 self.initial_p[:,:,0] = 0 #assume zero x component
                 self.initial_p[:, :, 1] = pr
             else: self.initial_p = initial_p
