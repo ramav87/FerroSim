@@ -228,8 +228,8 @@ class Ferro2DSim:
             raise ValueError ("You passed {} but allowable values are 'uniaxial', \
                               'squareelectric', 'tetragonal', 'rhombohedral' ".format(self.mode))
 
-    def runSim(self, calc_pr = False):
-        dpdt, pnew = self.calcODE()
+    def runSim(self, calc_pr = False, verbose = True):
+        dpdt, pnew = self.calcODE(verbose = verbose)
 
         P_total = np.sum(pnew, 0)
         dP_total = np.sum(dpdt, 0)
@@ -323,7 +323,7 @@ class Ferro2DSim:
 
 
 
-    def calcODE(self):
+    def calcODE(self, verbose=True):
 
         # Calculate the ODE (Landau-Khalatnikov 4th order expansion), return dp/dt and P
 
@@ -351,8 +351,13 @@ class Ferro2DSim:
 
             self.atoms[i].setP(1, p_i + dpdt[i, :,1] * dt)
         #t>1
-        print('---Performing simulation---')
-        for t in tqdm(np.arange(2, len(self.time_vec))):
+        if verbose==True: 
+            print('---Performing simulation---')
+            disable_tqdm = False
+        else:
+            disable_tqdm = True
+          
+        for t in tqdm(np.arange(2, len(self.time_vec)), disable = disable_tqdm):
 
             dt = self.time_vec[t] - self.time_vec[t-1]
 
