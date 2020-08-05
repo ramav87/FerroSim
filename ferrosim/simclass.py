@@ -4,6 +4,11 @@ import matplotlib.gridspec as gridspec
 import matplotlib.animation as animation
 from mpl_toolkits.axes_grid1 import make_axes_locatable
 from tqdm import tqdm
+
+import import scipy as sp
+import numdifftools as nd
+
+
 #TODO: Plotting might have to be taken out into a separete utils file. It's starting to take up too much room here.
 
 from .lattice import Lattice
@@ -585,3 +590,8 @@ class Ferro2DSim:
         return magnitude.reshape(Pvals.shape[1], Pvals.shape[2]), \
                angle.reshape(Pvals.shape[1], Pvals.shape[2])
 
+    @staticmethod
+    def calculate_curl(Pmat):
+        #check and debug
+        jac = nd.Jacobian(sp.array(Pmat))([1,2,3)
+        return sp.array([jac[2,1]-jac[1,2],jac[0,2]-jac[2,0],jac[1,0]-jac[0,1]])
