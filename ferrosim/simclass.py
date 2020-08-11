@@ -4,6 +4,7 @@ import matplotlib.gridspec as gridspec
 import matplotlib.animation as animation
 from mpl_toolkits.axes_grid1 import make_axes_locatable
 from tqdm import tqdm
+from numba import jit
 #TODO: Plotting might have to be taken out into a separete utils file. It's starting to take up too much room here.
 
 from .lattice import Lattice
@@ -584,4 +585,21 @@ class Ferro2DSim:
 
         return magnitude.reshape(Pvals.shape[1], Pvals.shape[2]), \
                angle.reshape(Pvals.shape[1], Pvals.shape[2])
+    
+    @staticmethod
+    @jit(fastmath=True)
+    def calc_curl(Pmat):
+        #input the Pmat of size (2,N,N) and return the curl
+        
+        #the curl will be a scalar in the z direction    
+        VxF =np.zeros((Pmat.shape[1],Pmat.shape[2]))
+
+        for i in range(0,Pmat.shape[1]):
+            for j in range(0,Pmat.shape[2]):
+                #dP_y/dx - dP_x/dy
+                VxF[i,j] = 0.5 * ((Pmat[1][(i+1)%Pmat.shape[2],j]-Pmat[1][i-1,j])-
+
+                                (Pmat[0][i,(j+1)%Pmat.shape[1]]-Pmat[0][i,j-1]))
+
+        return VxF
 
