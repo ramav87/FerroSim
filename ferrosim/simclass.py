@@ -55,7 +55,7 @@ class Ferro2DSim:
                  k=1, r=1.1,rTip = 3.0, dep_alpha = 0.0,
                  time_vec = None, defects = None,
                  appliedE = None, initial_p = None, init = 'pr', mode = 'tetragonal',
-                 landau_parms = None, temp=None):
+                 landau_parms = None, temp=None, stochastic = True):
 
         self.gamma = gamma  # kinetic coefficient
         self.rTip = rTip  # Radius of the tip
@@ -66,6 +66,8 @@ class Ferro2DSim:
         self._set_Landau_parms(landau_parms)
         self.temp = temp
         self.T0 = 400
+        self.stochastic = stochastic #whether to use stochastic gradients. If True, 4x speedup
+                                    #but may be less prone to convergence
 
         if self.temp is not None:
             if landau_parms is None:
@@ -230,7 +232,7 @@ class Ferro2DSim:
                               'squareelectric', 'tetragonal', 'rhombohedral' ".format(self.mode))
 
     def runSim(self, calc_pr = False, verbose = True):
-        dpdt, pnew = self.calcODE(verbose = verbose)
+        dpdt, pnew = self.calcODE(verbose = verbose, stochastic=self.stochastic)
 
         P_total = np.sum(pnew, 0)
         dP_total = np.sum(dpdt, 0)
@@ -262,6 +264,15 @@ class Ferro2DSim:
 
         return results
 
+    def runSimtoNextState(self, time_vec, start_p, verbose = False):
+        dpdt, pnew = self.calcODE(verbose = verbose, 
+        stochastic=self.stochastic, time_vec = time_vec, start_p = start_p)
+        P_total = np.sum(pnew, 0)
+        dP_total = np.sum(dpdt, 0)
+        results = {'Polarization': P_total, 'dPolarization': dP_total}
+        self.results = results
+        return results
+
     def getPNeighbors(self, index, t):
         """This function will return the actual, and sum, of the polarization values of
         the nearest neighbors as a list, given the index and the time step"""
@@ -276,13 +287,15 @@ class Ferro2DSim:
 
         return np.sum(p_nhood,axis=0), p_nhood
 
+    @jit(nopython=False, forceobj=True)
+    #TODO: Fix the numba stuff...
 
     def calDeriv(self, index, p_n, sum_p, Evec, total_p):
 
         #total_p should be a tuple with (px, py).
-
-        p_nx = p_n[0] # x component
-        p_ny = p_n[1] # y component
+        
+        p_nx = np.array(p_n[0], dtype = np.float64) # x component
+        p_ny = np.array(p_n[1], dtype = np.float64) # y component
 
         #Sometimes we get convergence issues. So clip the x and y components to be within a range.
         p_nx = np.clip(p_nx, -10, 10)
@@ -323,44 +336,57 @@ class Ferro2DSim:
         return derivative
 
 
+    def calcODE(self, stochastic = True, verbose=True, time_vec = None, start_p = None):
 
-    def calcODE(self, verbose=True):
+        if time_vec is None: time_vec = self.time_vec
+        if start_p is None: 
+            init_p_new = [self.atoms[i].getP(0) for i in range(len(self.atoms))]
+            init_p_new = np.array(init_p_new)
+        else:
+            init_p_new = start_p
+
 
         # Calculate the ODE (Landau-Khalatnikov 4th order expansion), return dp/dt and P
-
         N = self.n * self.n
-        dpdt = np.zeros(shape=(N, 2, len(self.time_vec))) #N lattice sites, 2 dim (x,y) for P, 1 time dim
-        pnew = np.zeros(shape=(N, 2, len(self.time_vec)))
-        dt = self.time_vec[1] - self.time_vec[0]
-
+        dpdt = np.zeros(shape=(N, 2, len(time_vec))) #N lattice sites, 2 dim (x,y) for P, 1 time dim
+        pnew = np.zeros(shape=(N, 2, len(time_vec)))
+        dt = time_vec[1] - time_vec[0]
+        
         # For t = 0
-        initial_p_distribution = self.getPmat(time_step=0)
-        pnew[:,:, 0] = np.transpose(initial_p_distribution.reshape(2, self.n*self.n))
+        
+        init_p_new = init_p_new.reshape(self.n*self.n,-1)
+        pnew[:,:, 0] = init_p_new
+        [self.atoms[i].setP(0, (px,py)) for i, (px,py) in enumerate(init_p_new)]
 
         # t=1
+        
         for i in range(N):
-
-            p_i = pnew[i, :, 0]
+            p_i = np.array(pnew[i, :, 0], dtype = np.float64)
             sum_p, _ = self.getPNeighbors(i, 0)
-
+            sum_p = np.array(sum_p, dtype = np.float64)
             total_px = np.sum(pnew[:,0,0])
             total_py = np.sum(pnew[:,1,0])
-            total_p = (total_px, total_py)
+            total_p = np.array((total_px, total_py), dtype = np.float64)
 
             dpdt[i, :, 1] = self.calDeriv(i, p_i, sum_p, self.appliedE[1,:], total_p)
-            pnew[i, :, 1] = p_i + dpdt[i,:, 1] * dt
+            pnew[i, :, 1] = p_i + self.gamma*dpdt[i,:, 1] * dt
 
-            self.atoms[i].setP(1, p_i + dpdt[i, :,1] * dt)
+            self.atoms[i].setP(1, p_i + self.gamma*dpdt[i, :,1] * dt)
         #t>1
         if verbose==True: 
             print('---Performing simulation---')
             disable_tqdm = False
         else:
             disable_tqdm = True
-          
-        for t in tqdm(np.arange(2, len(self.time_vec)), disable = disable_tqdm):
+        
+        for t in tqdm(np.arange(2, len(time_vec)), disable = disable_tqdm):
 
-            dt = self.time_vec[t] - self.time_vec[t-1]
+            dt = time_vec[t] - time_vec[t-1]
+            
+            if stochastic:
+                selected_idx = np.random.choice(np.arange(N), N//4, replace = False)
+            else: 
+                selected_idx = np.arange(0, N)
 
             for i in np.arange(0, N):
                 p_i = pnew[i,:, t - 1]
@@ -368,10 +394,14 @@ class Ferro2DSim:
                 total_px = np.sum(pnew[:, 0, t-1])
                 total_py = np.sum(pnew[:, 1, t-1])
                 total_p = (total_px,total_py)
+                if i in selected_idx:
+                    dpdt[i,:, t] = self.calDeriv(i, p_i, sum_p, self.appliedE[t,:], total_p)
+                    pnew[i,:, t] = p_i + dpdt[i,:, t] * dt
+                else:
+                    dpdt[i,:, t] = dpdt[i,:, t-1]
+                    pnew[i,:, t] = pnew[i,:, t-1]
 
-                dpdt[i,:, t] = self.calDeriv(i, p_i, sum_p, self.appliedE[t,:], total_p)
-                pnew[i,:, t] = p_i + dpdt[i,:, t] * dt
-                self.atoms[i].setP(t, p_i + dpdt[i, :,t] * dt)
+                self.atoms[i].setP(t, p_i + self.gamma*dpdt[i, :,t] * dt)
 
         return dpdt, pnew
 

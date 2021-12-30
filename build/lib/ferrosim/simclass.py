@@ -1,92 +1,156 @@
 import numpy as np
 import matplotlib.pyplot as plt
+import matplotlib.gridspec as gridspec
+import matplotlib.animation as animation
+from mpl_toolkits.axes_grid1 import make_axes_locatable
+from tqdm import tqdm
+from numba import jit
+#TODO: Plotting might have to be taken out into a separete utils file. It's starting to take up too much room here.
 
 from .lattice import Lattice
 
 class Ferro2DSim:
+
     """Ferro2DSim class that will setup and perform an
     Ising-like simulation of P vectors in a ferroelectric double well
       Random field defects are supported. The model is based on the paper by Ricinschii et al.
-      J. Phys.: Condens. Matter 10 (1998) 477–492.
-      Don't take this model too seriously. It's grossly wrong, but it's still fun.
-
-    The methods available are:
-
-    setPosition(): sets the (x,y) location of the object
-    getPosition(): returns the position of the object
-
-    setP(): sets the polarization value
-    getP(): gets the polarization value
-
-    calcDeriv(): calculates the derivative
-    caldODE(): solve the ODE
-
+      J. Phys.: Condens. Matter 10 (1998) 477–492, but has been considerably extended.
+    
+    All inputs are optional (they will default to values shown below)
+    
     Inputs: - n: (int) Size of lattice. Default = 10
-              alpha: (float) alpha term in Landau expansion. Default = -1.85
-              beta: (float) beta term in Landau expansion. Default = 1.25
+
               gamma: (float) kinetic coefficient in LK equation (~wall mobility). Default = 2.0
-              k: (float) coupling constant for nearest neighbors in this model. Default = 1.0. Would be lower near PT/for relaxors, etc.
+
+              k: (float or list of floats) coupling constant(s) for nearest neighbors in this model. Default = 1.0. 
+                    If providing a list, it should be of length (n*n). 
+                    This is provided in case you want to model random-bond disorder
+              
+              time_vec: (optional) (numpy array of size (time_steps,) If passing an applied electric field,
+              then also pass the time vector,  i.e. np.linspace(0,max_time, time_steps)
+              
+              appliedE: (optional) (numpy array of size (time_steps, 2) indicating applied electric field 
+              in units of Ec (Ec is nominal coercive field) for both x and y components. Default is a sine wave
+                                    
+              defects: (optional) list of tuples of length (n*n) with each tuple (RFx, RFy) being floats. 
+              If none provided, then (RFx,RFy) is (0,0) at all sites.
+              This stipulates the strength of the random field defects at each site and will be multipled by Ec, the nominal coercive field
+
               r: (float) Radius for nearest neighbor correlations. Default = 1.1 (nearest neighbor only)
-              t_max: (float) time max (will create a time vector from [0,time_max] with 1000 steps). Default = 1.0
-              E_frac: (float), Electric field maximum as a ratio over coercive field. Default = 80
-              defect_number: (int) number of defects (must be less than n^2). Will place defects at random sites.
-              rfield_strength: (float) Strength of the random field, as a fraction of Ec. E_bi Will be randomly distributed around this value.
+
+              rTip: (int) Tip radius. This is not really used properly so ignore for timebeing. Default = 3
+
+              dep_alpha (float): Depolarization constant (will be multipled by total polarization and subtracted from energy at lattice site). Default = 0
+
+              mode: (optional) (string) Mode of simulation. Can choose 'uniaxial', 'squreelectric', 'tetragonal' or 'rhomnohedral'. Consult documentation for details.
+
+              landau_parms: (optional) (dictionary) . Dictionary containing Landau parameters. You will need to provide according to 'mode'. Consult documentation for details.
+
+              Note: if you wish to change the coeffiicents in the functional, you should pass a dictionary
+              with the necessary parameters upon initialization.
+              
     """
 
-    def __init__(self, n=10, alpha=-1.6, beta=1.0, gamma=1.0,
-                 E_frac=-80, k=1, r=1.1, t_max=1.0, defect_number=0,
-                 rfield_strength=2.0, rTip = 3.0, dep_alpha = 0.2):
+    def __init__(self, n=10, gamma=1.0,
+                 k=1, r=1.1,rTip = 3.0, dep_alpha = 0.0,
+                 time_vec = None, defects = None,
+                 appliedE = None, initial_p = None, init = 'pr', mode = 'tetragonal',
+                 landau_parms = None, temp=None):
 
-        self.alpha = alpha
-        self.beta = beta
         self.gamma = gamma  # kinetic coefficient
-        self.E_frac = E_frac
-        self.k = k
-        self.n = n
-        self.r = r #how many nearest neighbors to search for (radius)
-        self.t_max = t_max
-        self.defect_number = defect_number
-        self.rfield_strength = rfield_strength
         self.rTip = rTip  # Radius of the tip
-        self.time_steps = 1000  # hard wired for now
-        self.pval = 1.0  # hard wired for now. Polarization at 0th time step
-        self.dep_alpha = dep_alpha#depolarization alpha
+        self.r = r  # how many nearest neighbors to search for (radius)
+        self.n = n
+        self.mode = mode
+        self.Pmat = []
+        self._set_Landau_parms(landau_parms)
+        self.temp = temp
+        self.T0 = 400
 
-        # Pass the polarization value along with (x,y) tuple for location of atom
-        self.P = np.zeros(shape=(self.time_steps))
-        self.P[0] = self.pval
-        self.position = (0, 0)
-        self.pr = -1 * np.sqrt(-self.alpha / self.beta) #/ (self.n * self.n)  # Remnant polarization
-        self.E, self.appliedE, self.time_vec = self.setup_field()  # setup the electic field
+        if self.temp is not None:
+            if landau_parms is None:
+                self.alpha1 = -1*self.alpha1*(self.temp - self.T0) #keep it negative
+            else:
+                self.alpha1 = self.alpha1 * (self.temp - self.T0)
 
-        self.atoms = self.setup_lattice()  # setup the lattice
 
-    def setup_field(self):
-        time_vec = np.linspace(0, self.t_max, self.time_steps)
+        np.seterr('raise') #raise errors for debugging purpose
 
-        # Field and degraded regions
-        E = np.zeros(shape=(2, len(time_vec), self.n * self.n))
-        Ebi = np.zeros(shape=(self.n * self.n))
-        Ec = (-2 / 3) * self.alpha * np.sqrt((-self.alpha / (3 * self.beta)))
-        E0 = self.E_frac * Ec
-        rand_selection = np.random.choice(range(self.n * self.n), size=self.defect_number, replace=False)
-        Ebi[rand_selection] = np.random.rand(len(rand_selection)) * Ec * self.rfield_strength
+        #Now we have to see if matrices were passed for the coupling constants and depolarization alphas
+        if len(np.array([k]))==1:
+            self.k = np.full(shape=(self.n*self.n), fill_value = k)
+        else:
+            #Do some checks
+            if len(k)!=n*n:
+                raise AssertionError("Length of provided coupling list should be {}, instead received {}".format(n,len(k)))
+            else:
+                self.k = k
 
-        for i in range(self.n * self.n):
-            E[1, 1:, i] = E0 * np.sin(time_vec[1:] * 2 * np.pi * 2) + Ebi[i] #field only in y direction
+        if len(np.array([dep_alpha]))==1:
+            self.dep_alpha = np.full(shape=(self.n*self.n), fill_value=dep_alpha)
+        else:
+            # Do some checks
+            if len(dep_alpha)!=n*n:
+                raise AssertionError("Length of provided coupling list should be {}, instead received {}".format(n,len(dep_alpha)))
+            else:
+                self.dep_alpha = dep_alpha
 
-        appliedE = E0 * np.sin(time_vec[1:] * 2 * np.pi * 2)
+        self.Ec = (-2 / 3) * self.alpha1 * np.sqrt(np.abs(-self.alpha1 / (3 * self.alpha2)))
+        if time_vec is not None or appliedE is not None:
+            if appliedE is None and time_vec is not None:
+                raise AssertionError("You have supplied a time vector but not a field vector. This is not allowed. You must supply both")
+            if appliedE is None and time_vec is not None:
+                raise AssertionError("You have supplied a field vector but not a time vector. This is not allowed. You must supply both")
+        elif time_vec is None and appliedE is None:
+            #these will be the defaults for the field, i.e. in case nothing is passed
+            self.t_max = 1.0
+            self.time_steps = 1000
+            self.time_vec = np.linspace(0, self.t_max, self.time_steps)
+            self.appliedE = np.zeros((self.time_steps, 2))
+            self.appliedE[:, 1] = 40*self.Ec * np.sin(self.time_vec[:] * 2 * np.pi * 2) #field is by default in y direction
 
-        return E, appliedE, time_vec
+        if time_vec is not None and appliedE is not None:
+            self.t_max = np.max(time_vec)
+            self.time_steps = len(time_vec)
+            if appliedE.shape[1]!=2: raise ShapeError ("Shape of applied field should be (time_steps,2). Input correct shape.")
+            self.appliedE = appliedE*self.Ec
+            self.time_vec = time_vec
 
-    def setup_lattice(self):
+        #We are going to define random fields based on the input of defects
+        #defects will be a list of tuples of size N with the Ex, Ey field components
+        #the field will be given in units of Ec, where Ec is defined for the pristine state (-2/3)alpha*(-alpha/3*beta)^1/2
+
+        if defects is None:
+            self.Eloc = [(0,0) for ind in range(self.n*self.n)]
+        else:
+            if len(defects)!=self.n*self.n: raise ShapeError("Length of defects is not equal to total number of lattice sites. Pass correct shape ")
+            self.Eloc = [(Ex*self.Ec,Ey*self.Ec) for (Ex,Ey) in defects] #We will worry about random bond defects later.
+
+        pr = -1 * np.sqrt(np.abs(-self.alpha1 / self.alpha2)) #/ (self.n * self.n)  # Remnant polarization, y component
+        if init =='pr':
+            self.init = 'pr'
+            if initial_p is None:
+                self.initial_p = np.full((self.n, self.n, 2), 0)
+                self.initial_p[:,:,0] = 0 #assume zero x component
+                self.initial_p[:, :, 1] = pr
+            else: self.initial_p = initial_p
+        elif init =='random': self.init = 'random'
+
+        self.atoms = self._setup_lattice()  # setup the lattice
+
+    def _setup_lattice(self):
         atoms = []
         pos_vec = np.zeros(shape=(2, self.n * self.n))
 
         for i in range(self.n):
             for j in range(self.n):
-                atoms.append(
-                    Lattice(self.pr, (i, j), len(self.time_vec)))  # Make lattice objects for each lattice site.
+                if self.init =='pr':
+                    atoms.append(
+                    Lattice(self.initial_p[i,j,:], (i, j), len(self.time_vec)))  # Make lattice objects for each lattice site.
+                elif self.init =='random':
+                    prand = tuple(0.5*np.random.randn(2))
+                    atoms.append(
+                    Lattice(prand, (i, j), len(self.time_vec)))  # Make lattice objects for each lattice site.
 
         for ind in range(len(atoms)):
             pos_vec[:, ind] = np.array(atoms[ind].getPosition())  # put the positions into pos_vec
@@ -106,8 +170,67 @@ class Ferro2DSim:
 
         return atoms
 
-    def runSim(self, calc_pr = False):
-        dpdt, pnew = self.calcODE()
+    def _set_Landau_parms(self, landau_parms):
+        #Will set the Landau parameters
+
+        if self.mode == 'uniaxial' or self.mode == 'squareelectric':
+            #uniaxial and squareelectric model requires only alpha1, alpha2
+            if landau_parms is not None:
+                try:
+                    self.alpha1 = landau_parms['alpha1']
+                    self.alpha2 = landau_parms['alpha2']
+                except KeyError:
+                    print("Dictionary doesn't contain required keys. The keys for model {} \
+                          are 'alpha1' and 'alpha2'.Reverting to default.".format(self.mode))
+                    self.alpha1 = -1.85
+                    self.alpha2 = 1.25
+            else:
+                #If we dont have a dictionary passed, use defaults
+                self.alpha1 = -1.85
+                self.alpha2 = 1.25
+        elif self.mode == 'tetragonal':
+            #tetragonal requires alpha1, alpha2 and alpha3
+            if landau_parms is not None:
+                try:
+                    self.alpha1 = landau_parms['alpha1']
+                    self.alpha2 = landau_parms['alpha2']
+                    self.alpha3 = landau_parms['alpha3']
+                except KeyError:
+                    print("Dictionary doesn't contain required keys. The keys for model {} \
+                          are 'alpha1', 'alpha2' and 'alpha3' .Reverting to default.".format(self.mode))
+                    self.alpha1 = -1.6
+                    self.alpha2 = 12.2
+                    self.alpha3 = 40.0
+
+            else:
+                #If we dont have a dictionary passed, use defaults
+                self.alpha1 = -1.6
+                self.alpha2 = 12.2
+                self.alpha3 = 40.0
+        elif self.mode == 'rhombohedral':
+            # rhombohedral requires alpha1, alpha2 and alpha3
+            if landau_parms is not None:
+                try:
+                    self.alpha1 = landau_parms['alpha1']
+                    self.alpha2 = landau_parms['alpha2']
+                    self.alpha3 = landau_parms['alpha3']
+                except KeyError:
+                    print("Dictionary doesn't contain required keys. The keys for model {} \
+                          are 'alpha1', 'alpha2' and 'alpha3' .Reverting to default.".format(self.mode))
+                    self.alpha1 = -10.6
+                    self.alpha2 = 10.2
+                    self.alpha3 = -10.0
+            else:
+                # If we dont have a dictionary passed, use defaults
+                self.alpha1 = -10.6
+                self.alpha2 = 10.2
+                self.alpha3 = -10.0
+        else:
+            raise ValueError ("You passed {} but allowable values are 'uniaxial', \
+                              'squareelectric', 'tetragonal', 'rhombohedral' ".format(self.mode))
+
+    def runSim(self, calc_pr = False, verbose = True):
+        dpdt, pnew = self.calcODE(verbose = verbose)
 
         P_total = np.sum(pnew, 0)
         dP_total = np.sum(dpdt, 0)
@@ -127,8 +250,6 @@ class Ferro2DSim:
                         measured_resp[i, j, t] = np.sum(probe_vol * pimage)
             measured_resp = measured_resp[(self.rTip+1):-(self.rTip+1),(self.rTip+1):-(self.rTip+1),:]
             line_Pvals = np.copy(measured_resp).reshape(-1, len(self.time_vec))
-            #max_val = np.max(line_Pvals)
-
 
             results = {'Polarization': P_total, 'dPolarization': dP_total, 'measuredResponse': measured_resp,
                        'line_polarization_values': line_Pvals
@@ -142,7 +263,7 @@ class Ferro2DSim:
         return results
 
     def getPNeighbors(self, index, t):
-        """This function will return the sum of the polarization values of
+        """This function will return the actual, and sum, of the polarization values of
         the nearest neighbors as a list, given the index and the time step"""
 
         nhood_ind = self.atoms[index].getNeighborIndex()
@@ -153,83 +274,106 @@ class Ferro2DSim:
             p_val = self.atoms[index].getP(t)
             p_nhood.append(p_val)
 
-        return np.sum(p_nhood)
+        return np.sum(p_nhood,axis=0), p_nhood
 
-    def calDeriv(self, p_n, sum_p, Evec, total_p):
+
+    def calDeriv(self, index, p_n, sum_p, Evec, total_p):
 
         #total_p should be a tuple with (px, py).
-        #TODO: This is wrong. We need to come up with a better way to handle this.
-        #The total P for depolarization effect can't just be accounted for like this
-        #Need to actually calculate the surface normals. Anyhow, ignoring for now.
-
-        #total_px = total_p[0]
-        #total_py = total_p[1]
 
         p_nx = p_n[0] # x component
         p_ny = p_n[1] # y component
 
+        #Sometimes we get convergence issues. So clip the x and y components to be within a range.
+        p_nx = np.clip(p_nx, -10, 10)
+        p_ny = np.clip(p_ny, -10, 10)
+
+        sum_px= sum_p[0]
+        sum_py= sum_p[1]
+
         Evec_x = Evec[0]
         Evec_y = Evec[1]
 
-        Eloc_x = Evec_x - self.dep_alpha*total_p
-        Eloc_y = Evec_y - self.dep_alpha * total_p
+        Eloc_x = Evec_x - self.dep_alpha[index] * total_p[0]/(self.n*self.n) + self.Eloc[index][0]
+        Eloc_y = Evec_y - self.dep_alpha[index] * total_p[1]/(self.n*self.n) + self.Eloc[index][1]
 
-        xcomp_derivative = -self.gamma * (self.beta * p_nx ** 3 + self.alpha * p_nx + self.k * (p_nx - sum_p/4) - Eloc_x)
-        ycomp_derivative = -self.gamma * (self.beta * p_ny ** 3 + self.alpha * p_ny + self.k * (p_ny - sum_p/4) - Eloc_y)
+        if self.mode == 'squareelectric':
+            xcomp_derivative = -self.gamma * (self.alpha2 * p_nx ** 3 +
+                                              self.alpha1 * p_nx + self.k[index] * (p_nx - sum_px/4) - Eloc_x)
 
-        return [xcomp_derivative, ycomp_derivative]
+            ycomp_derivative = -self.gamma * (self.alpha2 * p_ny ** 3 +
+                                               self.alpha1 * p_ny + self.k[index] * (p_ny - sum_py/4) - Eloc_y)
+            derivative = [xcomp_derivative, ycomp_derivative]
 
-    def calcODE(self):
+        elif self.mode =='uniaxial':
+            ycomp_derivative = -self.gamma * (self.alpha2 * p_ny ** 3 +
+                                              self.alpha1 * p_ny + self.k[index] * (p_ny - sum_py / 4) - Eloc_y)
+            derivative = [0, ycomp_derivative]
+        elif self.mode =='rhombohedral' or self.mode=='tetragonal':
 
-        # Calculatethe ODE (Landau-Khalatnikov 4th order expansion), return dp/dt and P
+            new_x_derivative = -self.gamma*(
+                    2*self.alpha1*p_nx + 4*self.alpha2*p_nx**3 + 2*self.alpha3*(p_ny**2) * p_nx +
+                                    self.k[index] * (p_nx - sum_px / 4) - Eloc_x)
+
+            new_y_derivative = -self.gamma * (
+                    2*self.alpha1*p_ny + 4*self.alpha2*p_ny**3 + 2*self.alpha3*(p_nx**2) * p_ny +
+                                    self.k[index] * (p_ny - sum_py / 4) - Eloc_y)
+            derivative = [new_x_derivative, new_y_derivative]
+
+        return derivative
+
+
+
+    def calcODE(self, verbose=True):
+
+        # Calculate the ODE (Landau-Khalatnikov 4th order expansion), return dp/dt and P
 
         N = self.n * self.n
-
         dpdt = np.zeros(shape=(N, 2, len(self.time_vec))) #N lattice sites, 2 dim (x,y) for P, 1 time dim
-        p = np.zeros(shape=(N, 2, len(self.time_vec)))
         pnew = np.zeros(shape=(N, 2, len(self.time_vec)))
-
         dt = self.time_vec[1] - self.time_vec[0]
-        pr = -self.gamma * np.sqrt(-self.alpha / self.beta)  # Remnant polarization
 
         # For t = 0
-        #Assume start at remnant pr
-        #p[:, 0] = pr Not sure we even use this?
-
-        pnew[:N,1, 0] = pr #assuming P is -x until y=N
-        #pnew[N//2:, 1, 0] = pr
-
-        #pnew[:N // 2, 0, 0] = 0  # assuming P is -x until y=N/2, then +x till the end of slab
-        #pnew[N // 2:, 0, 0] = 0
-
-        #For updates, just calculate derivative and go from there.
+        initial_p_distribution = self.getPmat(time_step=0)
+        print("init p distribution shape is {}".format(initial_p_distribution.shape))
+        init_p_new = [self.atoms[i].getP() for i in range(len(self.atoms))]
+        init_p_new = np.array(init_p_new)
+        print('init p new shape is {}'.format(init_p_new.shape))
+        pnew[:,:, 0] = np.transpose(initial_p_distribution.reshape(2, self.n*self.n))
 
         # t=1
         for i in range(N):
 
             p_i = pnew[i, :, 0]
-            sum_p = self.getPNeighbors(i, 0)
+            sum_p, _ = self.getPNeighbors(i, 0)
 
             total_px = np.sum(pnew[:,0,0])
             total_py = np.sum(pnew[:,1,0])
-            total_p = np.sqrt(total_px**2 + total_py**2)
+            total_p = (total_px, total_py)
 
-            dpdt[i, :, 1] = self.calDeriv(p_i, sum_p, self.E[:,1,i], total_p)
+            dpdt[i, :, 1] = self.calDeriv(i, p_i, sum_p, self.appliedE[1,:], total_p)
             pnew[i, :, 1] = p_i + dpdt[i,:, 1] * dt
 
             self.atoms[i].setP(1, p_i + dpdt[i, :,1] * dt)
+        #t>1
+        if verbose==True: 
+            print('---Performing simulation---')
+            disable_tqdm = False
+        else:
+            disable_tqdm = True
+          
+        for t in tqdm(np.arange(2, len(self.time_vec)), disable = disable_tqdm):
 
-        for t in np.arange(2, len(self.time_vec)):
+            dt = self.time_vec[t] - self.time_vec[t-1]
 
             for i in np.arange(0, N):
                 p_i = pnew[i,:, t - 1]
-                sum_p = self.getPNeighbors(i, t - 1)
+                sum_p,_ = self.getPNeighbors(i, t - 1)
                 total_px = np.sum(pnew[:, 0, t-1])
                 total_py = np.sum(pnew[:, 1, t-1])
-                total_p = np.sqrt(total_px ** 2 + total_py ** 2)
-                #total_p = np.sum(pnew[:,t-1]) #total polarization
+                total_p = (total_px,total_py)
 
-                dpdt[i,:, t] = self.calDeriv(p_i, sum_p, self.E[:,t, i], total_p)
+                dpdt[i,:, t] = self.calDeriv(i, p_i, sum_p, self.appliedE[t,:], total_p)
                 pnew[i,:, t] = p_i + dpdt[i,:, t] * dt
                 self.atoms[i].setP(t, p_i + dpdt[i, :,t] * dt)
 
@@ -238,7 +382,6 @@ class Ferro2DSim:
     def plot_quiver(self, time_step = None):
         #Plots a time sequence of P maps as quiver plots
         #if time step is provided then it plots only that time step
-
 
         if time_step is None:
             time_steps_chosen = [int(x) for x in np.linspace(0, self.time_steps-1, 9)]
@@ -283,47 +426,127 @@ class Ferro2DSim:
         plt.legend(loc = 'best')
 
         fig102 = plt.figure(102)
-        plt.plot(self.appliedE[:], self.results['Polarization'][0,1:] , label = 'Px')
-        plt.plot(self.appliedE[:], self.results['Polarization'][1, 1:], label = 'Py')
+        plt.plot(self.appliedE[:,0], self.results['Polarization'][0,:] , label = 'Px')
+        plt.plot(self.appliedE[:,1], self.results['Polarization'][1, :], label = 'Py')
         plt.xlabel('Field (a.u.)')
         plt.ylabel('Total Polarization')
         plt.legend(loc='best')
 
         fig103 = plt.figure(103)
-        plt.plot(self.time_vec[1:], self.appliedE[:])
+        plt.plot(self.time_vec[:], self.appliedE[:,0], label = 'Ex')
+        plt.plot(self.time_vec[:], self.appliedE[:, 1], label='Ey')
         plt.xlabel('Time (a.u.)')
         plt.ylabel('Field (a.u.)')
+        plt.legend(loc = 'best')
 
         S = self.results['Polarization'] ** 2
         fig104 = plt.figure(104)
-        plt.plot(self.appliedE[:], S[0,1:] ,label = 'Sx')
-        plt.plot(self.appliedE[:], S[1, 1:], label='Sy')
+        plt.plot(self.appliedE[:,0], S[0,:] ,label = 'Sx')
+        plt.plot(self.appliedE[:,1], S[1, :], label='Sy')
         plt.xlabel('Field (a.u.)')
         plt.ylabel('Amplitude')
         plt.legend(loc='best')
 
-        '''
-        fig105 = plt.figure(105)
-        fig, axes = plt.subplots(nrows=5, ncols=5, figsize = (12,12))
-        time_steps_chosen = [int(x) for x in np.linspace(1, self.time_steps-1, 25)]
-
-        max_pr = np.max(self.results['measuredResponse'])
-        min_pr = np.min(self.results['measuredResponse'])
-
-        for ind, ax in enumerate(axes.flat):
-            ax.imshow(self.results['measuredResponse'][:,:,time_steps_chosen[ind]])#  vmin = min_pr, vmax = max_pr
-            ax.axis('off')
-            ax.set_title('PR at t = {}'.format(time_steps_chosen[ind]))
-        fig.tight_layout()
-        '''
         return
+    
+    def getPmat(self, time_step=None):
+        "Returns the polarization matrix of shape (2,t,N,N) after simulation has been executed, or at given time step"
+        if time_step==None:
 
+            Pmat = np.zeros(shape=(2,self.time_steps, self.n, self.n))
+            for ind in range(self.time_steps):
+                Pvals = np.zeros(shape=(2, self.n * self.n))
+                for i in range(self.n * self.n):
+                    Pvals[:,i] = self.atoms[i].getP(ind)
+                Pmat[:, ind, :, :] = Pvals[:,:].reshape(2,self.n, self.n)
+
+            self.Pmat = Pmat
+        else:
+            Pmat = np.zeros(shape=(2, self.n, self.n))
+            Pvals = np.zeros(shape=(2, self.n * self.n))
+            for i in range(self.n * self.n):
+                Pvals[:, i] = self.atoms[i].getP(time_step)
+            Pmat[:,:,:] = Pvals.reshape(2,self.n, self.n)
+
+        return Pmat
 
     def make_interactive_plot(self):
-        #Here we need to make an interactive plot that we can scrub through. It should also allow you to export to videos.
-        #WIll add soon.
+        if self.Pmat == []: self.getPmat()
 
-        return
+        fig2 = plt.figure(constrained_layout=True, figsize=(6, 6))
+        spec2 = gridspec.GridSpec(ncols=3, nrows=3, figure=fig2, )
+        ax1 = fig2.add_subplot(spec2[:-1, :])
+        ax2 = fig2.add_subplot(spec2[-1, :])
+        Pmat = self.Pmat
+        time_vec = self.time_vec
+        applied_field = self.appliedE
+
+        def updateData(curr):
+            if curr <= 2: return
+            for ax in (ax1, ax2):
+                ax.clear()
+            _, angle = self.return_angles_and_magnitude(Pmat[:, curr, :, :])
+
+            ax1.imshow(angle, cmap='bwr')
+            #divider = make_axes_locatable(ax1)
+            #cax = divider.append_axes('right', size='5%', pad=0.05)
+            #cb1 = fig.colorbar(im1, cax=cax, orientation='vertical')
+            #cb1.ax.set_ylabel('Angle (rad.)')
+            ax1.quiver(Pmat[0, curr, :, :], Pmat[1, curr, :, :],
+                           color='black', edgecolor='black', linewidth=0.5)
+
+            #ax1.quiver(Pmat[0, curr, :, :], Pmat[1, curr, :, :])
+
+            ax1.set_title('Time Step: {}'.format(curr))
+            #ax1.axis('off')
+            #ax1.axis('equal')
+            # Electric field in x direction
+            ax2.plot(time_vec, applied_field[:, 0], 'k--', label='$E_x$')
+            ax2.plot(time_vec[curr], applied_field[curr, 0], 'ro')
+
+            # Electric field in y direction
+            ax2.plot(time_vec, applied_field[:, 1], 'b--', label='$E_y$')
+            ax2.plot(time_vec[curr], applied_field[curr, 1], 'ko')
+            ax2.set_xlabel('Time Step')
+            ax2.set_ylabel('Field (/$E_c$)')
+
+
+        fig2.tight_layout()
+        sim_animation = animation.FuncAnimation(fig2, updateData, interval=50, frames=range(0, self.time_steps, 5), repeat=False)
+
+        #plt.show()
+
+        return sim_animation
+
+    def plot_mag_ang(self, time_step=0):
+        '''Returns a plot of the P distribution as a magnitude/angle plot, and also provides the matrices
+         Takes as input the time step (default = 0)'''
+
+        magnitude, angle = self.return_angles_and_magnitude(self.Pmat[:, time_step, :, :])
+
+        # Plot it
+        fig, axes = plt.subplots(nrows=1, ncols=2, figsize=(12, 6))
+
+        im1 = axes[0].imshow(angle, cmap='bwr')
+        axes[0].set_title('Angle')
+        divider = make_axes_locatable(axes[0])
+        cax = divider.append_axes('right', size='5%', pad=0.05)
+        cb1 = fig.colorbar(im1, cax=cax, orientation='vertical')
+        cb1.ax.set_ylabel('Angle (rad.)')
+        axes[0].quiver(self.Pmat[0, time_step, :, :], self.Pmat[1, time_step, :, :],
+                       color='black', edgecolor='black', linewidth=0.5)
+
+        im2 = axes[1].imshow(magnitude, cmap='bwr')
+        divider = make_axes_locatable(axes[1])
+        cax = divider.append_axes('right', size='5%', pad=0.05)
+        cb2 = fig.colorbar(im2, cax=cax, orientation='vertical')
+        axes[1].set_title('Magnitude')
+        cb2.ax.set_ylabel('Magnitude')
+        axes[1].quiver(self.Pmat[0, time_step, :, :], self.Pmat[1, time_step, :, :],
+                       color='black', edgecolor='black', linewidth=0.5)
+        fig.tight_layout()
+
+        return fig, magnitude, angle
 
     @staticmethod
     def makeCircle(xsize, ysize, xpt, ypt, radius):
@@ -348,3 +571,39 @@ class Ferro2DSim:
         # return the indexes of nearest neighbours within radius R
         idx = (np.where((sqd > 0) & (sqd <= R)))
         return idx, sqd
+
+    @staticmethod
+    def return_angles_and_magnitude(Pvals):
+        # Pvals is of shape #2,n,n
+        Pvals_lin = np.reshape(Pvals, (2, Pvals.shape[1] * Pvals.shape[2]))
+        magnitude = np.zeros(Pvals.shape[1] * Pvals.shape[2])
+        angle = np.zeros(Pvals.shape[1] * Pvals.shape[2])
+        for ind in range(Pvals_lin.shape[-1]):
+            magnitude[ind] = np.sqrt(Pvals_lin[0, ind] ** 2 + Pvals_lin[1, ind] ** 2)
+            vector_1 = [1, 0]
+            vector_2 = [Pvals_lin[0, ind], Pvals_lin[1, ind]]
+            unit_vector_1 = vector_1 / np.linalg.norm(vector_1)
+            unit_vector_2 = vector_2 / np.linalg.norm(vector_2)
+            dot_product = np.dot(unit_vector_1, unit_vector_2)
+            angle[ind] = np.arccos(dot_product)
+
+        return magnitude.reshape(Pvals.shape[1], Pvals.shape[2]), \
+               angle.reshape(Pvals.shape[1], Pvals.shape[2])
+    
+    @staticmethod
+    @jit(fastmath=True)
+    def calc_curl(Pmat):
+        #input the Pmat of size (2,N,N) and return the curl
+        
+        #the curl will be a scalar in the z direction    
+        VxF =np.zeros((Pmat.shape[1],Pmat.shape[2]))
+
+        for i in range(0,Pmat.shape[1]):
+            for j in range(0,Pmat.shape[2]):
+                #dP_y/dx - dP_x/dy
+                VxF[i,j] = 0.5 * ((Pmat[1][(i+1)%Pmat.shape[2],j]-Pmat[1][i-1,j])-
+
+                                (Pmat[0][i,(j+1)%Pmat.shape[1]]-Pmat[0][i,j-1]))
+
+        return VxF
+
