@@ -573,6 +573,27 @@ class Ferro2DSim:
         fig.tight_layout()
 
         return fig, magnitude, angle
+    
+    def plot_polar(self, time_step=0):
+        '''Returns a plot of the P distribution polar plot, and also provides the matrices
+         Takes as input the time step (default = 0)'''
+
+        magnitude, angle = self.return_angles_and_magnitude(self.Pmat[:, time_step, :, :])
+        polar_vec = magnitude*np.cos(angle)
+        # Plot it
+        fig, axes = plt.subplots(nrows=1, ncols=1, figsize=(6,6))
+        im1 = axes[0].imshow(polar_vec, cmap='jet')
+        axes.set_title('Polar Plot')
+        divider = make_axes_locatable(axes[0])
+        cax = divider.append_axes('right', size='5%', pad=0.05)
+        cb1 = fig.colorbar(im1, cax=cax, orientation='vertical')
+        cb1.ax.set_ylabel('Angle (rad.)')
+        axes.quiver(self.Pmat[0, time_step, :, :], self.Pmat[1, time_step, :, :],
+                       color='black', edgecolor='black', linewidth=0.5)
+
+        fig.tight_layout()
+
+        return fig, [magnitude, angle, polar_vec]
 
     @staticmethod
     def makeCircle(xsize, ysize, xpt, ypt, radius):
