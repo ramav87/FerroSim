@@ -574,10 +574,10 @@ class Ferro2DSim:
 
         return fig, magnitude, angle
     
-    def plot_polar(self, time_step=0):
+    def plot_polar(self, time_step=int(0)):
         '''Returns a plot of the P distribution polar plot, and also provides the matrices
          Takes as input the time step (default = 0)'''
-
+        time_step = int(time_step)
         magnitude, angle = self.return_angles_and_magnitude(self.Pmat[:, time_step, :, :])
         polar_vec = magnitude*np.cos(angle)
         # Plot it
