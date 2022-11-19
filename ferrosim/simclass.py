@@ -547,7 +547,8 @@ class Ferro2DSim:
     def plot_mag_ang(self, time_step=0):
         '''Returns a plot of the P distribution as a magnitude/angle plot, and also provides the matrices
          Takes as input the time step (default = 0)'''
-
+        if self.Pmat == []: 
+            _ = self.getPmat();
         magnitude, angle = self.return_angles_and_magnitude(self.Pmat[:, time_step, :, :])
 
         # Plot it
@@ -578,6 +579,8 @@ class Ferro2DSim:
         '''Returns a plot of the P distribution polar plot, and also provides the matrices
          Takes as input the time step (default = 0)'''
         time_step = int(time_step)
+        if self.Pmat == []: 
+            _ = self.getPmat();
         magnitude, angle = self.return_angles_and_magnitude(self.Pmat[:, time_step, :, :])
         polar_vec = magnitude*np.cos(angle)
         # Plot it
@@ -587,7 +590,7 @@ class Ferro2DSim:
         divider = make_axes_locatable(axes)
         cax = divider.append_axes('right', size='5%', pad=0.05)
         cb1 = fig.colorbar(im1, cax=cax, orientation='vertical')
-        cb1.ax.set_ylabel('Angle (rad.)')
+        cb1.ax.set_ylabel('Rcos($\phi$)')
         axes.quiver(self.Pmat[0, time_step, :, :], self.Pmat[1, time_step, :, :],
                        color='black', edgecolor='black', linewidth=0.5)
 
