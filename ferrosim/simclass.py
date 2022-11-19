@@ -582,9 +582,9 @@ class Ferro2DSim:
         polar_vec = magnitude*np.cos(angle)
         # Plot it
         fig, axes = plt.subplots(nrows=1, ncols=1, figsize=(6,6))
-        im1 = axes[0].imshow(polar_vec, cmap='jet')
+        im1 = axes.imshow(polar_vec, cmap='jet')
         axes.set_title('Polar Plot')
-        divider = make_axes_locatable(axes[0])
+        divider = make_axes_locatable(axes)
         cax = divider.append_axes('right', size='5%', pad=0.05)
         cb1 = fig.colorbar(im1, cax=cax, orientation='vertical')
         cb1.ax.set_ylabel('Angle (rad.)')
