@@ -544,7 +544,7 @@ class Ferro2DSim:
 
         return sim_animation
 
-    def plot_mag_ang(self, time_step=0):
+    def plot_mag_ang(self, time_step=0, plot_arrows=True):
         '''Returns a plot of the P distribution as a magnitude/angle plot, and also provides the matrices
          Takes as input the time step (default = 0)'''
         if self.Pmat == []: 
@@ -560,7 +560,8 @@ class Ferro2DSim:
         cax = divider.append_axes('right', size='5%', pad=0.05)
         cb1 = fig.colorbar(im1, cax=cax, orientation='vertical')
         cb1.ax.set_ylabel('Angle (rad.)')
-        axes[0].quiver(self.Pmat[0, time_step, :, :], self.Pmat[1, time_step, :, :],
+        if plot_arrows:
+            axes[0].quiver(self.Pmat[0, time_step, :, :], self.Pmat[1, time_step, :, :],
                        color='black', edgecolor='black', linewidth=0.5)
 
         im2 = axes[1].imshow(magnitude, cmap='bwr')
@@ -569,13 +570,14 @@ class Ferro2DSim:
         cb2 = fig.colorbar(im2, cax=cax, orientation='vertical')
         axes[1].set_title('Magnitude')
         cb2.ax.set_ylabel('Magnitude')
-        axes[1].quiver(self.Pmat[0, time_step, :, :], self.Pmat[1, time_step, :, :],
+        if plot_arrows:
+            axes[1].quiver(self.Pmat[0, time_step, :, :], self.Pmat[1, time_step, :, :],
                        color='black', edgecolor='black', linewidth=0.5)
         fig.tight_layout()
 
         return fig, magnitude, angle
     
-    def plot_polar(self, time_step=int(0)):
+    def plot_polar(self, time_step=0, plot_arrows=True):
         '''Returns a plot of the P distribution polar plot, and also provides the matrices
          Takes as input the time step (default = 0)'''
         time_step = int(time_step)
@@ -591,7 +593,8 @@ class Ferro2DSim:
         cax = divider.append_axes('right', size='5%', pad=0.05)
         cb1 = fig.colorbar(im1, cax=cax, orientation='vertical')
         cb1.ax.set_ylabel('Rcos($\phi$)')
-        axes.quiver(self.Pmat[0, time_step, :, :], self.Pmat[1, time_step, :, :],
+        if plot_arrows:
+            axes.quiver(self.Pmat[0, time_step, :, :], self.Pmat[1, time_step, :, :],
                        color='black', edgecolor='black', linewidth=0.5)
 
         fig.tight_layout()
